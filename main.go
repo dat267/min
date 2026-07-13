@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,9 +32,8 @@ type CoreConfig struct {
 }
 
 type CLI struct {
-	ConfigFile string `help:"Path to config file" type:"path" name:"config"`
-	JSON       bool   `help:"Output results in JSON format." short:"j"`
-	AppConfig  Config `kong:"embed"`
+	ConfigFile kong.ConfigFlag `help:"Path to config file." placeholder:"PATH"`
+	AppConfig  Config          `kong:"embed"`
 
 	Config ConfigCmdGroup `cmd:"" help:"Manage application configuration"`
 	Greet  GreetCmd       `cmd:"" help:"Print a personalized greeting message"`
@@ -48,61 +47,42 @@ func main() {
 		appName = DefaultAppName
 	}
 
-	configFile := os.Getenv(strings.ToUpper(appName) + "_CONFIG")
-	if configFile == "" {
+	defaultConfigFile := os.Getenv(strings.ToUpper(appName) + "_CONFIG")
+	if defaultConfigFile == "" {
 		if dir, err := os.UserConfigDir(); err == nil {
-			configFile = filepath.Join(dir, appName, appName+".json")
+			defaultConfigFile = filepath.Join(dir, appName, appName+".json")
 		} else {
-			configFile = appName + ".json"
-		}
-	}
-	for i, arg := range os.Args {
-		if arg == "--config" && i+1 < len(os.Args) {
-			configFile = os.Args[i+1]
-		}
-		if after, found := strings.CutPrefix(arg, "--config="); found {
-			configFile = after
+			defaultConfigFile = appName + ".json"
 		}
 	}
 
-	flatCache := make(map[string]any)
-	var flattenMap func(raw map[string]any, prefix string) error
-	flattenMap = func(raw map[string]any, prefix string) error {
-		for key, val := range raw {
-			fullKey := key
-			if prefix != "" {
-				fullKey = prefix + "-" + key
-			}
-			if subMap, ok := val.(map[string]any); ok {
-				if err := flattenMap(subMap, fullKey); err != nil {
-					return err
+	jsonLoader := func(r io.Reader) (kong.Resolver, error) {
+		var raw map[string]any
+		if err := json.NewDecoder(r).Decode(&raw); err != nil {
+			return nil, err
+		}
+
+		flatCache := make(map[string]any)
+		var flatten func(m map[string]any, prefix string)
+		flatten = func(m map[string]any, prefix string) {
+			for k, v := range m {
+				key := k
+				if prefix != "" {
+					key = prefix + "-" + k
 				}
-			} else {
-				if _, collision := flatCache[fullKey]; collision {
-					return fmt.Errorf("in %s: duplicate configuration key collision detected: %q", configFile, fullKey)
+				if sub, ok := v.(map[string]any); ok {
+					flatten(sub, key)
+				} else {
+					flatCache[key] = v
 				}
-				flatCache[fullKey] = val
 			}
 		}
-		return nil
-	}
+		flatten(raw, "")
 
-	if data, err := os.ReadFile(configFile); err == nil {
-		var rawMap map[string]any
-		if err := json.Unmarshal(data, &rawMap); err == nil {
-			if err := flattenMap(rawMap, ""); err != nil {
-				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-				os.Exit(1)
-			}
-		}
+		return kong.ResolverFunc(func(ctx *kong.Context, parent *kong.Path, flag *kong.Flag) (any, error) {
+			return flatCache[flag.Name], nil
+		}), nil
 	}
-
-	jsonResolver := kong.ResolverFunc(func(context *kong.Context, parent *kong.Path, flag *kong.Flag) (any, error) {
-		if val, ok := flatCache[flag.Name]; ok {
-			return val, nil
-		}
-		return nil, nil
-	})
 
 	ctx := kong.Parse(&cli,
 		kong.Name(appName),
@@ -113,8 +93,13 @@ func main() {
 			Tree:    true,
 		}),
 		kong.DefaultEnvars(strings.ToUpper(appName)),
-		kong.Resolvers(jsonResolver),
+		kong.Configuration(jsonLoader, defaultConfigFile),
 	)
+
+	configFile := string(cli.ConfigFile)
+	if configFile == "" {
+		configFile = defaultConfigFile
+	}
 
 	ctx.Bind(&cli.AppConfig)
 	ctx.Bind(ConfigPath(configFile))
