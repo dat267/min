@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 )
 
@@ -11,6 +12,7 @@ type ConfigCmdGroup struct {
 	Init ConfigInitCmd `cmd:"" help:"Generate a default configuration profile template file"`
 	Path ConfigPathCmd `cmd:"" help:"Show the active configuration file path"`
 	Show ConfigShowCmd `cmd:"" help:"Print the active configuration values"`
+	Edit ConfigEditCmd `cmd:"" help:"Open the active configuration file in an editor"`
 }
 
 type ConfigInitCmd struct {
@@ -20,6 +22,8 @@ type ConfigInitCmd struct {
 type ConfigPathCmd struct{}
 
 type ConfigShowCmd struct{}
+
+type ConfigEditCmd struct{}
 
 func (cmd *ConfigInitCmd) Run(cfg *Config, path ConfigPath) error {
 	p := string(path)
@@ -57,4 +61,20 @@ func (cmd *ConfigShowCmd) Run(cfg *Config) error {
 	}
 	fmt.Println(string(data))
 	return nil
+}
+
+func (cmd *ConfigEditCmd) Run(path ConfigPath) error {
+	p := string(path)
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		return fmt.Errorf("failed to create configuration directory: %w", err)
+	}
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		editor = "vim"
+	}
+	c := exec.Command(editor, p)
+	c.Stdin = os.Stdin
+	c.Stdout = os.Stdout
+	c.Stderr = os.Stderr
+	return c.Run()
 }

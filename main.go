@@ -22,13 +22,13 @@ type ConfigPath string
 type Config struct {
 	AdminToken string     `json:"admin-token"`
 	Core       CoreConfig `json:"core" kong:"embed,prefix=core-"`
+	Debug      bool       `json:"debug" help:"Enable verbose debug logging."`
+	DryRun     bool       `json:"dry-run" help:"Simulate execution without side effects."`
 }
 
 type CoreConfig struct {
 	Timeout time.Duration `json:"timeout" default:"2m"`
 	Retries int           `json:"retries" default:"3"`
-	Debug   bool          `json:"debug" help:"Enable verbose debug logging."`
-	DryRun  bool          `json:"dry-run" help:"Simulate execution without side effects."`
 }
 
 type CLI struct {
