@@ -27,26 +27,27 @@ type Config struct {
 type CoreConfig struct {
 	Timeout time.Duration `json:"timeout" default:"2m"`
 	Retries int           `json:"retries" default:"3"`
+	Debug   bool          `json:"debug" help:"Enable verbose debug logging."`
+	DryRun  bool          `json:"dry-run" help:"Simulate execution without side effects."`
 }
 
 type CLI struct {
 	ConfigFile string `help:"Path to config file" type:"path" name:"config"`
+	JSON       bool   `help:"Output results in JSON format." short:"j"`
 	AppConfig  Config `kong:"embed"`
 
-	ConfigCmd ConfigCmdGroup `cmd:"" name:"config" help:"Manage application configuration"`
-	Greet     GreetCmd       `cmd:"" help:"Print a personalized greeting message"`
+	Config ConfigCmdGroup `cmd:"" help:"Manage application configuration"`
+	Greet  GreetCmd       `cmd:"" help:"Print a personalized greeting message"`
 }
 
 func main() {
 	var cli CLI
 
-	// Determine binary execution name, falling back to default during local development/testing
 	appName := strings.TrimSuffix(filepath.Base(os.Args[0]), filepath.Ext(os.Args[0]))
 	if appName == "" || appName == "main" || appName == "app" || strings.HasPrefix(appName, "go-build") || strings.HasSuffix(appName, ".test") {
 		appName = DefaultAppName
 	}
 
-	// Resolve configuration target path: Envar -> OS User Config Dir -> Current Dir
 	configFile := os.Getenv(strings.ToUpper(appName) + "_CONFIG")
 	if configFile == "" {
 		if dir, err := os.UserConfigDir(); err == nil {
@@ -55,7 +56,6 @@ func main() {
 			configFile = appName + ".json"
 		}
 	}
-	// Direct string inspection to capture the config file override before Kong parses arguments
 	for i, arg := range os.Args {
 		if arg == "--config" && i+1 < len(os.Args) {
 			configFile = os.Args[i+1]
@@ -65,7 +65,6 @@ func main() {
 		}
 	}
 
-	// Recursively flatten nested JSON maps into hyphen-delimited cache keys with collision checking
 	flatCache := make(map[string]any)
 	var flattenMap func(raw map[string]any, prefix string) error
 	flattenMap = func(raw map[string]any, prefix string) error {
@@ -88,7 +87,6 @@ func main() {
 		return nil
 	}
 
-	// Extract external file values into the flat target cache if the profile exists
 	if data, err := os.ReadFile(configFile); err == nil {
 		var rawMap map[string]any
 		if err := json.Unmarshal(data, &rawMap); err == nil {
@@ -99,7 +97,6 @@ func main() {
 		}
 	}
 
-	// Feed matching keys from the flat JSON map back into Kong's fallback resolution stack
 	jsonResolver := kong.ResolverFunc(func(context *kong.Context, parent *kong.Path, flag *kong.Flag) (any, error) {
 		if val, ok := flatCache[flag.Name]; ok {
 			return val, nil
@@ -107,7 +104,6 @@ func main() {
 		return nil, nil
 	})
 
-	// Initialize configuration parsing tree, resolving variables and adjusting help menus
 	ctx := kong.Parse(&cli,
 		kong.Name(appName),
 		kong.Description(AppDescription),
@@ -118,33 +114,8 @@ func main() {
 		}),
 		kong.DefaultEnvars(strings.ToUpper(appName)),
 		kong.Resolvers(jsonResolver),
-		kong.PostBuild(func(k *kong.Kong) error {
-			// Walk flag and argument metadata models to dynamically inject default text indicators
-			var appendDefaults func(*kong.Node)
-			appendDefaults = func(n *kong.Node) {
-				if n == nil {
-					return
-				}
-				for _, f := range n.Flags {
-					if f.Default != "" && !strings.Contains(strings.ToLower(f.Help), "default:") {
-						f.Help = fmt.Sprintf("%s (default: %s)", f.Help, f.Default)
-					}
-				}
-				for _, p := range n.Positional {
-					if p.Default != "" && !strings.Contains(strings.ToLower(p.Help), "default:") {
-						p.Help = fmt.Sprintf("%s (default: %s)", p.Help, p.Default)
-					}
-				}
-				for _, child := range n.Children {
-					appendDefaults(child)
-				}
-			}
-			appendDefaults(k.Model.Node)
-			return nil
-		}),
 	)
 
-	// Bind global parameters and runtime pointers securely into the environment context by explicit type
 	ctx.Bind(&cli.AppConfig)
 	ctx.Bind(ConfigPath(configFile))
 	ctx.BindTo(context.Background(), (*context.Context)(nil))

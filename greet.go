@@ -8,5 +8,6 @@ type GreetCmd struct {
 
 func (cmd *GreetCmd) Run(cfg *Config) error {
 	fmt.Printf("Hello, %s! (Current core timeout setting is %s)\n", cmd.Name, cfg.Core.Timeout)
+	fmt.Printf("admin token %s", cfg.AdminToken)
 	return nil
 }
