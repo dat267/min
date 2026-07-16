@@ -43,7 +43,20 @@ type CLI struct {
 // Execute wires up the met CLI and runs it.
 // To reuse this pattern in another project, call ExecuteCLI with your own cli and cfg structs.
 func main() {
-	var kebabCase func(s string) string
+	// Declare all local helper function variables
+	var (
+		kebabCase             func(s string) string
+		transformStructType   func(t reflect.Type) reflect.Type
+		recursivelyCopy       func(src, dst reflect.Value)
+		resolveAppName        func() string
+		resolveConfigFile     func(appName string) string
+		flattenMap            func(raw map[string]any, prefix string, out map[string]any)
+		buildFlatCache        func(configFile string, cfg any) map[string]any
+		applyStructDefaults   func(s any)
+		ExecuteCLI            func(cli any, cfg any, description string)
+	)
+
+	// String & Reflection Helpers
 	kebabCase = func(s string) string {
 		var result []rune
 		for i, r := range s {
@@ -55,7 +68,6 @@ func main() {
 		return strings.ToLower(string(result))
 	}
 
-	var transformStructType func(t reflect.Type) reflect.Type
 	transformStructType = func(t reflect.Type) reflect.Type {
 		if t.Kind() == reflect.Ptr {
 			return reflect.PointerTo(transformStructType(t.Elem()))
@@ -72,16 +84,12 @@ func main() {
 			sf := t.Field(i)
 			sf.Type = transformStructType(sf.Type)
 
-			isStruct := sf.Type.Kind() == reflect.Struct
-			if sf.Type.Kind() == reflect.Ptr {
-				isStruct = sf.Type.Elem().Kind() == reflect.Struct
-			}
-			isTimeOrDuration := sf.Type.PkgPath() == "time" && (sf.Type.Name() == "Duration" || sf.Type.Name() == "Time")
-			if sf.Type.Kind() == reflect.Ptr {
-				isTimeOrDuration = sf.Type.Elem().PkgPath() == "time" && (sf.Type.Elem().Name() == "Duration" || sf.Type.Elem().Name() == "Time")
+			baseType := sf.Type
+			if baseType.Kind() == reflect.Ptr {
+				baseType = baseType.Elem()
 			}
 
-			if isStruct && !isTimeOrDuration {
+			if baseType.Kind() == reflect.Struct && !(baseType.PkgPath() == "time" && (baseType.Name() == "Duration" || baseType.Name() == "Time")) {
 				tagStr := string(sf.Tag)
 				if !strings.Contains(tagStr, "embed") {
 					prefix := kebabCase(sf.Name)
@@ -99,7 +107,6 @@ func main() {
 		return reflect.StructOf(fields)
 	}
 
-	var recursivelyCopy func(src, dst reflect.Value)
 	recursivelyCopy = func(src, dst reflect.Value) {
 		if src.Kind() == reflect.Ptr {
 			if src.IsNil() {
@@ -120,7 +127,7 @@ func main() {
 		}
 	}
 
-	var resolveAppName func() string
+	// Application Config Helpers
 	resolveAppName = func() string {
 		name := filepath.Base(os.Args[0])
 		name = strings.TrimSuffix(name, filepath.Ext(name))
@@ -131,7 +138,6 @@ func main() {
 		return name
 	}
 
-	var resolveConfigFile func(appName string) string
 	resolveConfigFile = func(appName string) string {
 		for i, arg := range os.Args {
 			if arg == "--config-file" && i+1 < len(os.Args) {
@@ -151,7 +157,6 @@ func main() {
 		return appName + ".json"
 	}
 
-	var flattenMap func(raw map[string]any, prefix string, out map[string]any)
 	flattenMap = func(raw map[string]any, prefix string, out map[string]any) {
 		for key, val := range raw {
 			fullKey := key
@@ -166,7 +171,6 @@ func main() {
 		}
 	}
 
-	var buildFlatCache func(configFile string, cfg any) map[string]any
 	buildFlatCache = func(configFile string, cfg any) map[string]any {
 		flat := make(map[string]any)
 		data, err := os.ReadFile(configFile)
@@ -181,12 +185,8 @@ func main() {
 		return flat
 	}
 
-	var applyStructDefaults func(s any)
 	applyStructDefaults = func(s any) {
-		v := reflect.ValueOf(s)
-		if v.Kind() == reflect.Ptr {
-			v = v.Elem()
-		}
+		v := reflect.Indirect(reflect.ValueOf(s))
 		if v.Kind() != reflect.Struct {
 			return
 		}
@@ -221,16 +221,14 @@ func main() {
 					if d, err := time.ParseDuration(defaultVal); err == nil {
 						fv.SetInt(int64(d))
 					}
-				} else {
-					if n, err := strconv.ParseInt(defaultVal, 10, 64); err == nil {
-						fv.SetInt(n)
-					}
+				} else if n, err := strconv.ParseInt(defaultVal, 10, 64); err == nil {
+					fv.SetInt(n)
 				}
 			}
 		}
 	}
 
-	var ExecuteCLI func(cli any, cfg any, description string)
+	// CLI Orchestrator
 	ExecuteCLI = func(cli any, cfg any, description string) {
 		appName := resolveAppName()
 		configFile := resolveConfigFile(appName)
