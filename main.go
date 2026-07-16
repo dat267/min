@@ -246,8 +246,8 @@ func main() {
 		return nil, nil
 	})
 
-	type1 := reflect.TypeOf(cli).Elem()
-	type2 := reflect.TypeOf(cfg).Elem()
+	type1 := reflect.TypeFor[CLI]()
+	type2 := reflect.TypeFor[Config]()
 	transformedConfigType := transformStructType(type2)
 
 	combinedType := reflect.StructOf([]reflect.StructField{
