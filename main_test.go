@@ -19,7 +19,7 @@ func TestParameterSpecificity(t *testing.T) {
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	binPath := filepath.Join(tmpDir, "min")
-	buildCmd := exec.Command("go", "build", "-o", binPath, ".")
+	buildCmd := exec.Command("go", "build", "-o", binPath, ".") //nolint:gosec // G204: Subprocess launched with variable
 	if err := buildCmd.Run(); err != nil {
 		t.Fatalf("failed to build binary: %v", err)
 	}
@@ -39,7 +39,7 @@ func TestParameterSpecificity(t *testing.T) {
 	// Helper function to run the command and parse the JSON config output
 	runConfigShow := func(env []string, args ...string) (ConfigTest, error) {
 		cmdArgs := append([]string{"config", "show"}, args...)
-		cmd := exec.Command(binPath, cmdArgs...)
+		cmd := exec.Command(binPath, cmdArgs...) //nolint:gosec // G204: Subprocess launched with variable
 		cmd.Env = append(os.Environ(), env...)
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout = &stdout

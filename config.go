@@ -72,7 +72,7 @@ func (cmd *ConfigEditCmd) Run(path ConfigPath) error {
 	if editor == "" {
 		editor = "vim"
 	}
-	c := exec.Command(editor, p)
+	c := exec.Command(editor, p) //nolint:gosec // G204: Subprocess launched with variable
 	c.Stdin = os.Stdin
 	c.Stdout = os.Stdout
 	c.Stderr = os.Stderr
