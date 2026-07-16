@@ -224,61 +224,59 @@ func main() {
 		}
 	}
 
-	// CLI Orchestrator
-	ExecuteCLI := func(cli any, cfg any, description string) {
-		appName := resolveAppName()
-		configFile := resolveConfigFile(appName)
+	cli := &CLI{}
+	cfg := &Config{}
 
-		applyStructDefaults(cfg)
+	appName := resolveAppName()
+	configFile := resolveConfigFile(appName)
 
-		flatCache := buildFlatCache(configFile, cfg)
+	applyStructDefaults(cfg)
 
-		jsonResolver := kong.ResolverFunc(func(_ *kong.Context, _ *kong.Path, flag *kong.Flag) (any, error) {
-			for _, env := range flag.Envs {
-				if _, ok := os.LookupEnv(env); ok {
-					return nil, nil
-				}
+	flatCache := buildFlatCache(configFile, cfg)
+
+	jsonResolver := kong.ResolverFunc(func(_ *kong.Context, _ *kong.Path, flag *kong.Flag) (any, error) {
+		for _, env := range flag.Envs {
+			if _, ok := os.LookupEnv(env); ok {
+				return nil, nil
 			}
-			if val, ok := flatCache[flag.Name]; ok {
-				return val, nil
-			}
-			return nil, nil
-		})
+		}
+		if val, ok := flatCache[flag.Name]; ok {
+			return val, nil
+		}
+		return nil, nil
+	})
 
-		type1 := reflect.TypeOf(cli).Elem()
-		type2 := reflect.TypeOf(cfg).Elem()
-		transformedConfigType := transformStructType(type2)
+	type1 := reflect.TypeOf(cli).Elem()
+	type2 := reflect.TypeOf(cfg).Elem()
+	transformedConfigType := transformStructType(type2)
 
-		combinedType := reflect.StructOf([]reflect.StructField{
-			{Name: "CLI", Type: type1, Anonymous: true},
-			{Name: "Config", Type: transformedConfigType, Anonymous: true},
-		})
-		combinedVal := reflect.New(combinedType)
-		combinedVal.Elem().Field(0).Set(reflect.ValueOf(cli).Elem())
-		recursivelyCopy(reflect.ValueOf(cfg).Elem(), combinedVal.Elem().Field(1))
+	combinedType := reflect.StructOf([]reflect.StructField{
+		{Name: "CLI", Type: type1, Anonymous: true},
+		{Name: "Config", Type: transformedConfigType, Anonymous: true},
+	})
+	combinedVal := reflect.New(combinedType)
+	combinedVal.Elem().Field(0).Set(reflect.ValueOf(cli).Elem())
+	recursivelyCopy(reflect.ValueOf(cfg).Elem(), combinedVal.Elem().Field(1))
 
-		ctx := kong.Parse(combinedVal.Interface(),
-			kong.Name(appName),
-			kong.Description(description),
-			kong.UsageOnError(),
-			kong.ConfigureHelp(kong.HelpOptions{
-				Compact: true,
-				Tree:    true,
-			}),
-			kong.Configuration(kong.JSON),
-			kong.DefaultEnvars(strings.ToUpper(appName)),
-			kong.Resolvers(jsonResolver),
-		)
+	ctx := kong.Parse(combinedVal.Interface(),
+		kong.Name(appName),
+		kong.Description(AppDescription),
+		kong.UsageOnError(),
+		kong.ConfigureHelp(kong.HelpOptions{
+			Compact: true,
+			Tree:    true,
+		}),
+		kong.Configuration(kong.JSON),
+		kong.DefaultEnvars(strings.ToUpper(appName)),
+		kong.Resolvers(jsonResolver),
+	)
 
-		reflect.ValueOf(cli).Elem().Set(combinedVal.Elem().Field(0))
-		recursivelyCopy(combinedVal.Elem().Field(1), reflect.ValueOf(cfg).Elem())
+	reflect.ValueOf(cli).Elem().Set(combinedVal.Elem().Field(0))
+	recursivelyCopy(combinedVal.Elem().Field(1), reflect.ValueOf(cfg).Elem())
 
-		ctx.Bind(cfg)
-		ctx.Bind(ConfigPath(configFile))
-		ctx.BindTo(context.Background(), (*context.Context)(nil))
+	ctx.Bind(cfg)
+	ctx.Bind(ConfigPath(configFile))
+	ctx.BindTo(context.Background(), (*context.Context)(nil))
 
-		ctx.FatalIfErrorf(ctx.Run())
-	}
-
-	ExecuteCLI(&CLI{}, &Config{}, AppDescription)
+	ctx.FatalIfErrorf(ctx.Run())
 }
