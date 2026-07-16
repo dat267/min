@@ -77,7 +77,7 @@ func main() {
 				baseType = baseType.Elem()
 			}
 
-			if baseType.Kind() == reflect.Struct && !(baseType.PkgPath() == "time" && (baseType.Name() == "Duration" || baseType.Name() == "Time")) {
+			if baseType.Kind() == reflect.Struct && (baseType.PkgPath() != "time" || (baseType.Name() != "Duration" && baseType.Name() != "Time")) {
 				tagStr := string(sf.Tag)
 				if !strings.Contains(tagStr, "embed") {
 					prefix := kebabCase(sf.Name)

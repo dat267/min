@@ -16,7 +16,7 @@ func TestParameterSpecificity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	binPath := filepath.Join(tmpDir, "min")
 	buildCmd := exec.Command("go", "build", "-o", binPath, ".")
