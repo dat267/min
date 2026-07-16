@@ -168,7 +168,7 @@ func main() {
 
 	buildFlatCache := func(configFile string, cfg any) map[string]any {
 		flat := make(map[string]any)
-		data, err := os.ReadFile(configFile) //nolint:gosec // G304: Potential file inclusion via variable
+		data, err := os.ReadFile(filepath.Clean(configFile))
 		if err != nil {
 			return flat
 		}
