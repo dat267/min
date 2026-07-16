@@ -43,21 +43,8 @@ type CLI struct {
 // Execute wires up the met CLI and runs it.
 // To reuse this pattern in another project, call ExecuteCLI with your own cli and cfg structs.
 func main() {
-	// Declare all local helper function variables
-	var (
-		kebabCase             func(s string) string
-		transformStructType   func(t reflect.Type) reflect.Type
-		recursivelyCopy       func(src, dst reflect.Value)
-		resolveAppName        func() string
-		resolveConfigFile     func(appName string) string
-		flattenMap            func(raw map[string]any, prefix string, out map[string]any)
-		buildFlatCache        func(configFile string, cfg any) map[string]any
-		applyStructDefaults   func(s any)
-		ExecuteCLI            func(cli any, cfg any, description string)
-	)
-
 	// String & Reflection Helpers
-	kebabCase = func(s string) string {
+	kebabCase := func(s string) string {
 		var result []rune
 		for i, r := range s {
 			if i > 0 && r >= 'A' && r <= 'Z' {
@@ -68,6 +55,7 @@ func main() {
 		return strings.ToLower(string(result))
 	}
 
+	var transformStructType func(t reflect.Type) reflect.Type
 	transformStructType = func(t reflect.Type) reflect.Type {
 		if t.Kind() == reflect.Ptr {
 			return reflect.PointerTo(transformStructType(t.Elem()))
@@ -107,6 +95,7 @@ func main() {
 		return reflect.StructOf(fields)
 	}
 
+	var recursivelyCopy func(src, dst reflect.Value)
 	recursivelyCopy = func(src, dst reflect.Value) {
 		if src.Kind() == reflect.Ptr {
 			if src.IsNil() {
@@ -128,7 +117,7 @@ func main() {
 	}
 
 	// Application Config Helpers
-	resolveAppName = func() string {
+	resolveAppName := func() string {
 		name := filepath.Base(os.Args[0])
 		name = strings.TrimSuffix(name, filepath.Ext(name))
 		if name == "" || name == "main" || name == "app" ||
@@ -138,7 +127,7 @@ func main() {
 		return name
 	}
 
-	resolveConfigFile = func(appName string) string {
+	resolveConfigFile := func(appName string) string {
 		for i, arg := range os.Args {
 			if arg == "--config-file" && i+1 < len(os.Args) {
 				return os.Args[i+1]
@@ -157,6 +146,7 @@ func main() {
 		return appName + ".json"
 	}
 
+	var flattenMap func(raw map[string]any, prefix string, out map[string]any)
 	flattenMap = func(raw map[string]any, prefix string, out map[string]any) {
 		for key, val := range raw {
 			fullKey := key
@@ -171,7 +161,7 @@ func main() {
 		}
 	}
 
-	buildFlatCache = func(configFile string, cfg any) map[string]any {
+	buildFlatCache := func(configFile string, cfg any) map[string]any {
 		flat := make(map[string]any)
 		data, err := os.ReadFile(configFile)
 		if err != nil {
@@ -185,6 +175,7 @@ func main() {
 		return flat
 	}
 
+	var applyStructDefaults func(s any)
 	applyStructDefaults = func(s any) {
 		v := reflect.Indirect(reflect.ValueOf(s))
 		if v.Kind() != reflect.Struct {
@@ -229,7 +220,7 @@ func main() {
 	}
 
 	// CLI Orchestrator
-	ExecuteCLI = func(cli any, cfg any, description string) {
+	ExecuteCLI := func(cli any, cfg any, description string) {
 		appName := resolveAppName()
 		configFile := resolveConfigFile(appName)
 
