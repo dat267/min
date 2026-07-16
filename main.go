@@ -45,14 +45,19 @@ type CLI struct {
 func main() {
 	// String & Reflection Helpers
 	kebabCase := func(s string) string {
-		var result []rune
+		var sb strings.Builder
+		sb.Grow(len(s) + 4)
 		for i, r := range s {
 			if i > 0 && r >= 'A' && r <= 'Z' {
-				result = append(result, '-')
+				sb.WriteRune('-')
 			}
-			result = append(result, r)
+			if r >= 'A' && r <= 'Z' {
+				sb.WriteRune(r + ('a' - 'A'))
+			} else {
+				sb.WriteRune(r)
+			}
 		}
-		return strings.ToLower(string(result))
+		return sb.String()
 	}
 
 	var transformStructType func(t reflect.Type) reflect.Type
@@ -136,7 +141,7 @@ func main() {
 				return after
 			}
 		}
-		envKey := fmt.Sprintf("%s_CONFIG", strings.ToUpper(appName))
+		envKey := strings.ToUpper(appName) + "_CONFIG"
 		if configFile := os.Getenv(envKey); configFile != "" {
 			return configFile
 		}
