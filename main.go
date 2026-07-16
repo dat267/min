@@ -57,7 +57,7 @@ func main() {
 
 	var transformStructType func(t reflect.Type) reflect.Type
 	transformStructType = func(t reflect.Type) reflect.Type {
-		if t.Kind() == reflect.Ptr {
+		if t.Kind() == reflect.Pointer {
 			return reflect.PointerTo(transformStructType(t.Elem()))
 		}
 		if t.Kind() != reflect.Struct {
@@ -73,7 +73,7 @@ func main() {
 			sf.Type = transformStructType(sf.Type)
 
 			baseType := sf.Type
-			if baseType.Kind() == reflect.Ptr {
+			if baseType.Kind() == reflect.Pointer {
 				baseType = baseType.Elem()
 			}
 
@@ -97,7 +97,7 @@ func main() {
 
 	var recursivelyCopy func(src, dst reflect.Value)
 	recursivelyCopy = func(src, dst reflect.Value) {
-		if src.Kind() == reflect.Ptr {
+		if src.Kind() == reflect.Pointer {
 			if src.IsNil() {
 				return
 			}
@@ -208,7 +208,7 @@ func main() {
 					fv.SetInt(int64(n))
 				}
 			case reflect.Int64:
-				if fv.Type() == reflect.TypeOf(time.Duration(0)) {
+				if fv.Type() == reflect.TypeFor[time.Duration]() {
 					if d, err := time.ParseDuration(defaultVal); err == nil {
 						fv.SetInt(int64(d))
 					}
