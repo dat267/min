@@ -83,6 +83,11 @@ The framework automatically maps subcommand options to global configuration prop
 - If you define `CoreTimeout Duration` on your subcommand, it maps strictly to `core.timeout` in `Config` (env: `$MIN_CORE_TIMEOUT`).
 - Any flag name that does not match a global config field (e.g. if you define a local option `Timeout Duration`) remains entirely local to the subcommand and does not conflict with the global configuration.
 
+#### Crucial: Field Naming Rules
+Because the framework maps subcommand flags dynamically, **the field name in your subcommand struct must reflect the Go structure path of the target global configuration property**:
+- To map to global `Config.Core.Timeout` (flat key `"core-timeout"`), the subcommand option field **must be named `CoreTimeout`** to produce the flag `--core-timeout`.
+- If you name the field `Timeout`, it will produce the flag `--timeout`, which does not match `"core-timeout"` and will act only as a local command flag without inheriting configuration or environment variable overrides.
+
 ### Specificity Best Practice
 - If a parameter is a global config option (e.g. `CoreTimeout`), define its primary fallback default tag on the `Config` struct in `main.go`.
 - If a subcommand needs to run with a more specific timeout default than the rest of the application, define the `default:"<value>"` tag on that subcommand's option (e.g., `default:"10s"` on the subcommand flag). The framework will automatically prefer the subcommand's default over the global default when no config file or env var is set.
