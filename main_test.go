@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -54,6 +55,21 @@ func TestParameterSpecificity(t *testing.T) {
 			return ConfigTest{}, fmt.Errorf("failed to unmarshal JSON: %w (output: %s)", err, stdout.String())
 		}
 		return cfg, nil
+	}
+
+	// Helper function to run the greet command and return stdout
+	runGreet := func(env []string, args ...string) (string, error) {
+		cmdArgs := append([]string{"greet"}, args...)
+		cmd := exec.Command(binPath, cmdArgs...)
+		cmd.Env = append(os.Environ(), env...)
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+
+		if err := cmd.Run(); err != nil {
+			return "", fmt.Errorf("failed to run greet: %w (stderr: %s)", err, stderr.String())
+		}
+		return stdout.String(), nil
 	}
 
 	// Scenario 1: Default values (no flags, no env vars, empty config file)
@@ -144,5 +160,33 @@ func TestParameterSpecificity(t *testing.T) {
 	}
 	if !cfg4.Debug {
 		t.Errorf("expected debug = true, got %v", cfg4.Debug)
+	}
+
+	// Scenario 5: Subcommand flag default vs. Root config default vs. File/Env specificity
+	// 5a. No config, no env -> should use GreetCmd default timeout (10s) instead of Config default (2m)
+	out5a, err := runGreet(nil, "--config-file", emptyConfigPath)
+	if err != nil {
+		t.Fatalf("Scenario 5a failed: %v", err)
+	}
+	if !strings.Contains(out5a, "timeout setting is 10s") {
+		t.Errorf("expected subcommand default timeout 10s, got: %q", out5a)
+	}
+
+	// 5b. Config file sets timeout -> should override GreetCmd default timeout (10s)
+	out5b, err := runGreet(nil, "--config-file", configPath)
+	if err != nil {
+		t.Fatalf("Scenario 5b failed: %v", err)
+	}
+	if !strings.Contains(out5b, "timeout setting is 5m0s") {
+		t.Errorf("expected config file timeout 5m0s to override, got: %q", out5b)
+	}
+
+	// 5c. Env var sets timeout -> should override GreetCmd default timeout (10s)
+	out5c, err := runGreet([]string{"MIN_CORE_TIMEOUT=15m"}, "--config-file", emptyConfigPath)
+	if err != nil {
+		t.Fatalf("Scenario 5c failed: %v", err)
+	}
+	if !strings.Contains(out5c, "timeout setting is 15m0s") {
+		t.Errorf("expected env timeout 15m0s to override, got: %q", out5c)
 	}
 }

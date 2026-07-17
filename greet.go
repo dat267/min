@@ -9,7 +9,7 @@ type GreetCmd struct {
 	Name        string   `arg:"" help:"Name of the person to greet." default:"World"`
 	Shout       bool     `short:"s" help:"Convert the greeting to uppercase."`
 	Times       int      `short:"t" help:"Number of times to repeat the greeting." default:"1"`
-	CoreTimeout Duration `help:"Core timeout override"`
+	CoreTimeout Duration `help:"Core timeout override" default:"10s"`
 }
 
 func (cmd *GreetCmd) Run() error {

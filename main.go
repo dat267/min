@@ -195,11 +195,30 @@ func main() {
 	}
 
 	runtimeCfg := &Config{}
+	explicitlySet := make(map[string]bool)
 
 	// 1. Load config file values.
+	var rawMap map[string]any
 	if data, err := os.ReadFile(filepath.Clean(configFile)); err == nil {
 		_ = json.Unmarshal(data, runtimeCfg)
+		_ = json.Unmarshal(data, &rawMap)
 	}
+
+	var markExplicit func(map[string]any, string)
+	markExplicit = func(m map[string]any, prefix string) {
+		for k, v := range m {
+			key := k
+			if prefix != "" {
+				key = prefix + "-" + k
+			}
+			explicitlySet[key] = true
+			explicitlySet[k] = true
+			if sub, ok := v.(map[string]any); ok {
+				markExplicit(sub, key)
+			}
+		}
+	}
+	markExplicit(rawMap, "")
 
 	// 2. Build a flat map of config fields.
 	buildFlatMap(reflect.ValueOf(runtimeCfg), "")
@@ -210,6 +229,10 @@ func main() {
 		envKey := envPrefix + strings.ToUpper(strings.ReplaceAll(key, "-", "_"))
 		if val, ok := os.LookupEnv(envKey); ok {
 			setFieldValue(field.value, val)
+			explicitlySet[key] = true
+			if idx := strings.LastIndex(key, "-"); idx != -1 {
+				explicitlySet[key[idx+1:]] = true
+			}
 		} else if field.defaultTag != "" && field.value.IsZero() {
 			setFieldValue(field.value, field.defaultTag)
 		}
@@ -219,6 +242,9 @@ func main() {
 	configResolver := kong.ResolverFunc(func(ctx *kong.Context, parent *kong.Path, flag *kong.Flag) (any, error) {
 		if field, ok := configFields[flag.Name]; ok {
 			fv := field.value
+			if !explicitlySet[flag.Name] && flag.HasDefault {
+				return nil, nil
+			}
 			if fv.IsZero() {
 				return nil, nil
 			}
