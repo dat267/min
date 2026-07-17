@@ -180,6 +180,23 @@ func main() {
 		}
 		return nil
 	}
+	if err := markExplicit(rawMap, ""); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v at %s\n", err, configFile)
+		os.Exit(1)
+	}
+
+	// 3. Load env overrides and apply struct default tags to all fields.
+	envPrefix := strings.ToUpper(appName) + "_"
+	for key, field := range configFields {
+		envKey := envPrefix + strings.ToUpper(strings.ReplaceAll(key, "-", "_"))
+		if val, ok := os.LookupEnv(envKey); ok {
+			setFieldValue(field.value, val)
+			explicitlySet[key] = true
+		} else if field.defaultTag != "" && field.value.IsZero() {
+			setFieldValue(field.value, field.defaultTag)
+		}
+	}
+
 	// Resolver to supply configuration values as defaults for subcommand flags.
 	configResolver := kong.ResolverFunc(func(ctx *kong.Context, parent *kong.Path, flag *kong.Flag) (any, error) {
 		if field, ok := configFields[flag.Name]; ok {
@@ -196,7 +213,7 @@ func main() {
 	})
 
 	cli := &CLI{}
-	k, err := kong.New(cli,
+	ctx := kong.Parse(cli,
 		kong.Name(appName),
 		kong.Description(AppDescription),
 		kong.UsageOnError(),
@@ -207,32 +224,6 @@ func main() {
 			Tree:    true,
 		}),
 	)
-	k.FatalIfErrorf(err)
-
-	if err := markExplicit(rawMap, ""); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v at %s\n\n", err, configFile)
-		ctx, err2 := kong.Trace(k, os.Args[1:])
-		if err2 != nil {
-			ctx, _ = kong.Trace(k, []string{})
-		}
-		_ = ctx.PrintUsage(false)
-		os.Exit(1)
-	}
-
-	// 3. Load env overrides and apply struct default tags to all fields.
-	envPrefix := strings.ToUpper(appName) + "_"
-	for key, field := range configFields {
-		envKey := envPrefix + strings.ToUpper(strings.ReplaceAll(key, "-", "_"))
-		if val, ok := os.LookupEnv(envKey); ok {
-			setFieldValue(field.value, val)
-			explicitlySet[key] = true
-		} else if field.defaultTag != "" && field.value.IsZero() {
-			setFieldValue(field.value, field.defaultTag)
-		}
-	}
-
-	ctx, err := k.Parse(os.Args[1:])
-	k.FatalIfErrorf(err)
 
 	// Sync any resolved subcommand flags back to the runtime configuration.
 	for _, flag := range ctx.Flags() {
