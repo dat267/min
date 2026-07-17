@@ -144,30 +144,42 @@ func main() {
 	runtimeCfg := &Config{}
 	explicitlySet := make(map[string]bool)
 
-	// 1. Load config file values.
+	// 1. Build a flat map of config fields.
+	buildFlatMap(reflect.ValueOf(runtimeCfg), "")
+
+	// 2. Load config file values.
 	var rawMap map[string]any
 	if data, err := os.ReadFile(filepath.Clean(configFile)); err == nil {
 		_ = json.Unmarshal(data, runtimeCfg)
 		_ = json.Unmarshal(data, &rawMap)
 	}
 
-	var markExplicit func(map[string]any, string)
-	markExplicit = func(m map[string]any, prefix string) {
+	var markExplicit func(map[string]any, string) error
+	markExplicit = func(m map[string]any, prefix string) error {
 		for k, v := range m {
 			key := k
 			if prefix != "" {
 				key = prefix + "-" + k
 			}
-			explicitlySet[key] = true
 			if sub, ok := v.(map[string]any); ok {
-				markExplicit(sub, key)
+				if err := markExplicit(sub, key); err != nil {
+					return err
+				}
+			} else {
+				if _, ok := configFields[key]; ok {
+					if explicitlySet[key] {
+						return fmt.Errorf("duplicate configuration key %q in config file", key)
+					}
+					explicitlySet[key] = true
+				}
 			}
 		}
+		return nil
 	}
-	markExplicit(rawMap, "")
-
-	// 2. Build a flat map of config fields.
-	buildFlatMap(reflect.ValueOf(runtimeCfg), "")
+	if err := markExplicit(rawMap, ""); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
 
 	// 3. Load env overrides and apply struct default tags to all fields.
 	envPrefix := strings.ToUpper(appName) + "_"
