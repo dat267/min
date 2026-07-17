@@ -41,6 +41,7 @@ func TestParameterSpecificity(t *testing.T) {
 	runConfigShow := func(env []string, args ...string) (ConfigTest, error) {
 		cmdArgs := append([]string{"config", "show"}, args...)
 		cmd := exec.Command(binPath, cmdArgs...)
+		cmd.Dir = tmpDir
 		cmd.Env = append(os.Environ(), env...)
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout = &stdout
@@ -61,6 +62,7 @@ func TestParameterSpecificity(t *testing.T) {
 	runGreet := func(env []string, args ...string) (string, error) {
 		cmdArgs := append([]string{"greet"}, args...)
 		cmd := exec.Command(binPath, cmdArgs...)
+		cmd.Dir = tmpDir
 		cmd.Env = append(os.Environ(), env...)
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout = &stdout
@@ -215,5 +217,38 @@ func TestParameterSpecificity(t *testing.T) {
 		if !strings.Contains(err.Error(), "duplicate configuration key") {
 			t.Errorf("expected error message to mention duplicate configuration key, got: %v", err)
 		}
+	}
+
+	// Scenario 8: Config file location resolution priority
+	// 8a. Resolution via $MIN_CONFIG_FILE env var (when --config-file is omitted)
+	envConfigPath := filepath.Join(tmpDir, "env_config.json")
+	envConfigJSON := `{
+		"admin-token": "env-resolved-token"
+	}`
+	if err := os.WriteFile(envConfigPath, []byte(envConfigJSON), 0600); err != nil {
+		t.Fatalf("failed to write env config file: %v", err)
+	}
+	cfg8a, err := runConfigShow([]string{"MIN_CONFIG_FILE=" + envConfigPath})
+	if err != nil {
+		t.Fatalf("Scenario 8a failed: %v", err)
+	}
+	if cfg8a.AdminToken != "env-resolved-token" {
+		t.Errorf("expected admin-token = \"env-resolved-token\", got %q", cfg8a.AdminToken)
+	}
+
+	// 8b. Resolution via local default min.json in working directory (when --config-file and env are omitted)
+	localConfigPath := filepath.Join(tmpDir, "min.json")
+	localConfigJSON := `{
+		"admin-token": "local-json-token"
+	}`
+	if err := os.WriteFile(localConfigPath, []byte(localConfigJSON), 0600); err != nil {
+		t.Fatalf("failed to write local min.json file: %v", err)
+	}
+	cfg8b, err := runConfigShow(nil)
+	if err != nil {
+		t.Fatalf("Scenario 8b failed: %v", err)
+	}
+	if cfg8b.AdminToken != "local-json-token" {
+		t.Errorf("expected admin-token = \"local-json-token\", got %q", cfg8b.AdminToken)
 	}
 }

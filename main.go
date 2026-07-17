@@ -59,14 +59,18 @@ func main() {
 				return after
 			}
 		}
-		envKey := strings.ToUpper(appName) + "_CONFIG"
+		envKey := strings.ToUpper(appName) + "_CONFIG_FILE"
 		if configFile := os.Getenv(envKey); configFile != "" {
 			return configFile
+		}
+		localFile := appName + ".json"
+		if _, err := os.Stat(localFile); err == nil {
+			return localFile
 		}
 		if dir, err := os.UserConfigDir(); err == nil {
 			return filepath.Join(dir, appName, appName+".json")
 		}
-		return appName + ".json"
+		return localFile
 	}
 
 	appName := resolveAppName()
