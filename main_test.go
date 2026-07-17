@@ -27,8 +27,8 @@ func TestParameterSpecificity(t *testing.T) {
 
 	// 2. Define the config structures for unmarshaling the test output
 	type CoreConfigTest struct {
-		Timeout int64 `json:"timeout"` // duration represented as nanoseconds in JSON
-		Retries int   `json:"retries"`
+		Timeout string `json:"timeout"`
+		Retries int    `json:"retries"`
 	}
 	type ConfigTest struct {
 		AdminToken string         `json:"admin-token"`
@@ -132,9 +132,8 @@ func TestParameterSpecificity(t *testing.T) {
 	if cfg3.Core.Retries != 10 { // remains unchanged from config file
 		t.Errorf("expected core.retries = 10, got %d", cfg3.Core.Retries)
 	}
-	// 30m duration = 1800000000000 ns
-	if cfg3.Core.Timeout != 1800000000000 {
-		t.Errorf("expected core.timeout = 1800000000000, got %d", cfg3.Core.Timeout)
+	if cfg3.Core.Timeout != "30m" {
+		t.Errorf("expected core.timeout = \"30m\", got %q", cfg3.Core.Timeout)
 	}
 
 	// Scenario 4: Env vars fully override config file (no CLI flags for config values)
@@ -151,9 +150,8 @@ func TestParameterSpecificity(t *testing.T) {
 	if cfg4.AdminToken != "env2-token" {
 		t.Errorf("expected admin-token = \"env2-token\", got %q", cfg4.AdminToken)
 	}
-	// 45m duration = 2700000000000 ns
-	if cfg4.Core.Timeout != 2700000000000 {
-		t.Errorf("expected core.timeout = 2700000000000, got %d", cfg4.Core.Timeout)
+	if cfg4.Core.Timeout != "45m" {
+		t.Errorf("expected core.timeout = \"45m\", got %q", cfg4.Core.Timeout)
 	}
 	if cfg4.Core.Retries != 99 {
 		t.Errorf("expected core.retries = 99, got %d", cfg4.Core.Retries)
@@ -177,8 +175,8 @@ func TestParameterSpecificity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Scenario 5b failed: %v", err)
 	}
-	if !strings.Contains(out5b, "timeout setting is 5m0s") {
-		t.Errorf("expected config file timeout 5m0s to override, got: %q", out5b)
+	if !strings.Contains(out5b, "timeout setting is 5m") {
+		t.Errorf("expected config file timeout 5m to override, got: %q", out5b)
 	}
 
 	// 5c. Env var sets timeout -> should override GreetCmd default timeout (10s)
@@ -186,7 +184,7 @@ func TestParameterSpecificity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Scenario 5c failed: %v", err)
 	}
-	if !strings.Contains(out5c, "timeout setting is 15m0s") {
-		t.Errorf("expected env timeout 15m0s to override, got: %q", out5c)
+	if !strings.Contains(out5c, "timeout setting is 15m") {
+		t.Errorf("expected env timeout 15m to override, got: %q", out5c)
 	}
 }

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -10,7 +9,6 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/alecthomas/kong"
 )
@@ -22,47 +20,6 @@ const (
 
 type ConfigPath string
 
-// Duration wraps time.Duration with JSON and text unmarshaling support
-// for both duration strings (e.g. "5m") and raw integers (nanoseconds).
-type Duration struct {
-	time.Duration
-}
-
-func (d Duration) MarshalJSON() ([]byte, error) {
-	return json.Marshal(d.Nanoseconds())
-}
-
-func (d *Duration) UnmarshalJSON(b []byte) error {
-	var s string
-	if err := json.Unmarshal(b, &s); err != nil {
-		var ns int64
-		if err2 := json.Unmarshal(b, &ns); err2 != nil {
-			return err
-		}
-		d.Duration = time.Duration(ns)
-		return nil
-	}
-	parsed, err := time.ParseDuration(s)
-	if err != nil {
-		return err
-	}
-	d.Duration = parsed
-	return nil
-}
-
-func (d *Duration) UnmarshalText(b []byte) error {
-	parsed, err := time.ParseDuration(string(b))
-	if err != nil {
-		if ns, err2 := strconv.ParseInt(string(b), 10, 64); err2 == nil {
-			d.Duration = time.Duration(ns)
-			return nil
-		}
-		return err
-	}
-	d.Duration = parsed
-	return nil
-}
-
 type Config struct {
 	AdminToken string     `json:"admin-token"`
 	Core       CoreConfig `json:"core"`
@@ -71,8 +28,8 @@ type Config struct {
 }
 
 type CoreConfig struct {
-	Timeout Duration `json:"timeout" default:"2m"`
-	Retries int      `json:"retries" default:"3"`
+	Timeout string `json:"timeout" default:"2m"`
+	Retries int    `json:"retries" default:"3"`
 }
 
 type CLI struct {
@@ -134,12 +91,6 @@ func main() {
 
 	// Helper to set a reflect.Value from a string.
 	setFieldValue := func(fv reflect.Value, s string) {
-		if fv.CanAddr() {
-			if u, ok := fv.Addr().Interface().(encoding.TextUnmarshaler); ok {
-				_ = u.UnmarshalText([]byte(s))
-				return
-			}
-		}
 		switch fv.Kind() {
 		case reflect.String:
 			fv.SetString(s)
@@ -182,7 +133,7 @@ func main() {
 				fullKey = prefix + "-" + name
 			}
 
-			if fv.Kind() == reflect.Struct && fv.Type() != reflect.TypeFor[Duration]() {
+			if fv.Kind() == reflect.Struct {
 				buildFlatMap(fv, fullKey)
 			} else {
 				configFields[fullKey] = configField{value: fv, defaultTag: ft.Tag.Get("default")}
@@ -239,9 +190,6 @@ func main() {
 			}
 			if fv.IsZero() {
 				return nil, nil
-			}
-			if fv.Type() == reflect.TypeFor[Duration]() {
-				return fv.Interface().(Duration).String(), nil
 			}
 			return fmt.Sprintf("%v", fv.Interface()), nil
 		}
