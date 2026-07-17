@@ -187,4 +187,33 @@ func TestParameterSpecificity(t *testing.T) {
 	if !strings.Contains(out5c, "timeout setting is 15m") {
 		t.Errorf("expected env timeout 15m to override, got: %q", out5c)
 	}
+
+	// Scenario 6: CLI flag overrides both config file and environment variables
+	out6, err := runGreet([]string{"MIN_CORE_TIMEOUT=30m"}, "--config-file", configPath, "--core-timeout", "1h")
+	if err != nil {
+		t.Fatalf("Scenario 6 failed: %v", err)
+	}
+	if !strings.Contains(out6, "timeout setting is 1h") {
+		t.Errorf("expected CLI flag 1h to override both env and config file, got: %q", out6)
+	}
+
+	// Scenario 7: Duplicate configuration key validation in the config file
+	duplicateConfigPath := filepath.Join(tmpDir, "duplicate.json")
+	duplicateJSON := `{
+		"core-timeout": "5m",
+		"core": {
+			"timeout": "10m"
+		}
+	}`
+	if err := os.WriteFile(duplicateConfigPath, []byte(duplicateJSON), 0600); err != nil {
+		t.Fatalf("failed to write duplicate config file: %v", err)
+	}
+	_, err = runGreet(nil, "--config-file", duplicateConfigPath)
+	if err == nil {
+		t.Errorf("Scenario 7 failed: expected command to fail with duplicate config file, but it succeeded")
+	} else {
+		if !strings.Contains(err.Error(), "duplicate configuration key") {
+			t.Errorf("expected error message to mention duplicate configuration key, got: %v", err)
+		}
+	}
 }
