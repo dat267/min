@@ -185,11 +185,7 @@ func main() {
 			if fv.Kind() == reflect.Struct && fv.Type() != reflect.TypeFor[Duration]() {
 				buildFlatMap(fv, fullKey)
 			} else {
-				fieldInfo := configField{value: fv, defaultTag: ft.Tag.Get("default")}
-				configFields[fullKey] = fieldInfo
-				if prefix != "" {
-					configFields[name] = fieldInfo
-				}
+				configFields[fullKey] = configField{value: fv, defaultTag: ft.Tag.Get("default")}
 			}
 		}
 	}
@@ -212,7 +208,6 @@ func main() {
 				key = prefix + "-" + k
 			}
 			explicitlySet[key] = true
-			explicitlySet[k] = true
 			if sub, ok := v.(map[string]any); ok {
 				markExplicit(sub, key)
 			}
@@ -230,9 +225,6 @@ func main() {
 		if val, ok := os.LookupEnv(envKey); ok {
 			setFieldValue(field.value, val)
 			explicitlySet[key] = true
-			if idx := strings.LastIndex(key, "-"); idx != -1 {
-				explicitlySet[key[idx+1:]] = true
-			}
 		} else if field.defaultTag != "" && field.value.IsZero() {
 			setFieldValue(field.value, field.defaultTag)
 		}

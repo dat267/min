@@ -80,8 +80,8 @@ graph TD
 ### Flag Name and Path Mapping
 The framework automatically maps subcommand options to global configuration properties:
 
-- If you define `CoreTimeout Duration` on your subcommand, it maps to `core.timeout` in `Config` (env: `$MIN_CORE_TIMEOUT`).
-- If you define `Timeout Duration` on your subcommand, it also maps to `core.timeout` (env: `$MIN_TIMEOUT`).
+- If you define `CoreTimeout Duration` on your subcommand, it maps strictly to `core.timeout` in `Config` (env: `$MIN_CORE_TIMEOUT`).
+- Any flag name that does not match a global config field (e.g. if you define a local option `Timeout Duration`) remains entirely local to the subcommand and does not conflict with the global configuration.
 
 ### Specificity Best Practice
 - If a parameter is a global config option (e.g. `CoreTimeout`), define its primary fallback default tag on the `Config` struct in `main.go`.
