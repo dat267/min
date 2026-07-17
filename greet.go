@@ -3,16 +3,18 @@ package main
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
 type GreetCmd struct {
-	Name  string `arg:"" help:"Name of the person to greet." default:"World"`
-	Shout bool   `short:"s" help:"Convert the greeting to uppercase."`
-	Times int    `short:"t" help:"Number of times to repeat the greeting." default:"1"`
+	Name        string        `arg:"" help:"Name of the person to greet." default:"World"`
+	Shout       bool          `short:"s" help:"Convert the greeting to uppercase."`
+	Times       int           `short:"t" help:"Number of times to repeat the greeting." default:"1"`
+	CoreTimeout time.Duration `help:"Core timeout override"`
 }
 
-func (cmd *GreetCmd) Run(cfg *Config) error {
-	msg := fmt.Sprintf("Hello, %s! (Current core timeout setting is %s)", cmd.Name, cfg.Core.Timeout)
+func (cmd *GreetCmd) Run() error {
+	msg := fmt.Sprintf("Hello, %s! (Current core timeout setting is %s)", cmd.Name, cmd.CoreTimeout)
 	if cmd.Shout {
 		msg = strings.ToUpper(msg)
 	}
