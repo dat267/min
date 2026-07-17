@@ -121,20 +121,28 @@ func TestParameterSpecificity(t *testing.T) {
 		t.Errorf("expected core.timeout = 1800000000000, got %d", cfg3.Core.Timeout)
 	}
 
-	// Scenario 4: Flags override env vars
-	cfg4, err := runConfigShow(envVars,
-		"--config-file", configPath,
-		"--admin-token", "flag-token",
-		"--core-timeout", "45m",
-	)
+	// Scenario 4: Env vars fully override config file (no CLI flags for config values)
+	envVars2 := []string{
+		"MIN_ADMIN_TOKEN=env2-token",
+		"MIN_CORE_TIMEOUT=45m",
+		"MIN_CORE_RETRIES=99",
+		"MIN_DEBUG=true",
+	}
+	cfg4, err := runConfigShow(envVars2, "--config-file", emptyConfigPath)
 	if err != nil {
 		t.Fatalf("Scenario 4 failed: %v", err)
 	}
-	if cfg4.AdminToken != "flag-token" {
-		t.Errorf("expected admin-token = \"flag-token\", got %q", cfg4.AdminToken)
+	if cfg4.AdminToken != "env2-token" {
+		t.Errorf("expected admin-token = \"env2-token\", got %q", cfg4.AdminToken)
 	}
 	// 45m duration = 2700000000000 ns
 	if cfg4.Core.Timeout != 2700000000000 {
 		t.Errorf("expected core.timeout = 2700000000000, got %d", cfg4.Core.Timeout)
+	}
+	if cfg4.Core.Retries != 99 {
+		t.Errorf("expected core.retries = 99, got %d", cfg4.Core.Retries)
+	}
+	if !cfg4.Debug {
+		t.Errorf("expected debug = true, got %v", cfg4.Debug)
 	}
 }

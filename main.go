@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -24,8 +23,8 @@ type ConfigPath string
 type Config struct {
 	AdminToken string     `json:"admin-token"`
 	Core       CoreConfig `json:"core"`
-	Debug      bool       `json:"debug" help:"Enable verbose debug logging."`
-	DryRun     bool       `json:"dry-run" help:"Simulate execution without side effects."`
+	Debug      bool       `json:"debug"`
+	DryRun     bool       `json:"dry-run"`
 }
 
 type CoreConfig struct {
@@ -34,16 +33,15 @@ type CoreConfig struct {
 }
 
 type CLI struct {
-	ConfigFile kong.ConfigFlag `help:"Path to config file." placeholder:"PATH"`
+	ConfigFile string `help:"Path to config file." placeholder:"PATH"`
 
 	Config ConfigCmdGroup `cmd:"" help:"Manage application configuration"`
 	Greet  GreetCmd       `cmd:"" help:"Print a personalized greeting message"`
 }
 
-// Execute wires up the met CLI and runs it.
-// To reuse this pattern in another project, call ExecuteCLI with your own cli and cfg structs.
+// main wires up the CLI and runs it.
 func main() {
-	// String & Reflection Helpers
+	// String Helper
 	kebabCase := func(s string) string {
 		var sb strings.Builder
 		sb.Grow(len(s) + 4)
@@ -58,67 +56,6 @@ func main() {
 			}
 		}
 		return sb.String()
-	}
-
-	var transformStructType func(t reflect.Type) reflect.Type
-	transformStructType = func(t reflect.Type) reflect.Type {
-		if t.Kind() == reflect.Pointer {
-			return reflect.PointerTo(transformStructType(t.Elem()))
-		}
-		if t.Kind() != reflect.Struct {
-			return t
-		}
-		if t.PkgPath() == "time" && (t.Name() == "Duration" || t.Name() == "Time") {
-			return t
-		}
-
-		fields := make([]reflect.StructField, t.NumField())
-		for i := 0; i < t.NumField(); i++ {
-			sf := t.Field(i)
-			sf.Type = transformStructType(sf.Type)
-
-			baseType := sf.Type
-			if baseType.Kind() == reflect.Pointer {
-				baseType = baseType.Elem()
-			}
-
-			if baseType.Kind() == reflect.Struct && (baseType.PkgPath() != "time" || (baseType.Name() != "Duration" && baseType.Name() != "Time")) {
-				tagStr := string(sf.Tag)
-				if !strings.Contains(tagStr, "embed") {
-					prefix := kebabCase(sf.Name)
-					if jsonTag := sf.Tag.Get("json"); jsonTag != "" {
-						parts := strings.Split(jsonTag, ",")
-						if parts[0] != "" && parts[0] != "-" {
-							prefix = parts[0]
-						}
-					}
-					sf.Tag = reflect.StructTag(fmt.Sprintf(`%s embed:"" prefix:"%s-"`, tagStr, prefix))
-				}
-			}
-			fields[i] = sf
-		}
-		return reflect.StructOf(fields)
-	}
-
-	var recursivelyCopy func(src, dst reflect.Value)
-	recursivelyCopy = func(src, dst reflect.Value) {
-		if src.Kind() == reflect.Pointer {
-			if src.IsNil() {
-				return
-			}
-			if dst.IsNil() {
-				dst.Set(reflect.New(dst.Type().Elem()))
-			}
-			recursivelyCopy(src.Elem(), dst.Elem())
-			return
-		}
-		if src.Kind() != reflect.Struct {
-			dst.Set(src)
-			return
-		}
-		for i := 0; i < src.NumField(); i++ {
-			recursivelyCopy(src.Field(i), dst.Field(i))
-		}
 	}
 
 	// Application Config Helpers
@@ -149,35 +86,6 @@ func main() {
 			return filepath.Join(dir, appName, appName+".json")
 		}
 		return appName + ".json"
-	}
-
-	var flattenMap func(raw map[string]any, prefix string, out map[string]any)
-	flattenMap = func(raw map[string]any, prefix string, out map[string]any) {
-		for key, val := range raw {
-			fullKey := key
-			if prefix != "" {
-				fullKey = prefix + "-" + key
-			}
-			if subMap, ok := val.(map[string]any); ok {
-				flattenMap(subMap, fullKey, out)
-			} else {
-				out[fullKey] = val
-			}
-		}
-	}
-
-	buildFlatCache := func(configFile string, cfg any) map[string]any {
-		flat := make(map[string]any)
-		data, err := os.ReadFile(filepath.Clean(configFile))
-		if err != nil {
-			return flat
-		}
-		var rawMap map[string]any
-		if err := json.Unmarshal(data, &rawMap); err == nil {
-			flattenMap(rawMap, "", flat)
-		}
-		_ = json.Unmarshal(data, cfg)
-		return flat
 	}
 
 	var applyStructDefaults func(s any)
@@ -224,41 +132,81 @@ func main() {
 		}
 	}
 
+	// loadConfig unmarshals a JSON config file into cfg, silently ignoring missing files.
+	loadConfig := func(configFile string, cfg any) {
+		data, err := os.ReadFile(filepath.Clean(configFile))
+		if err != nil {
+			return
+		}
+		_ = json.Unmarshal(data, cfg)
+	}
+
+	// applyEnvOverrides walks cfg and overrides any field whose env var (e.g. MIN_ADMIN_TOKEN) is set.
+	// Precedence: env var > config file value already in cfg.
+	var applyEnvOverrides func(s any, prefix string)
+	applyEnvOverrides = func(s any, prefix string) {
+		v := reflect.Indirect(reflect.ValueOf(s))
+		if v.Kind() != reflect.Struct {
+			return
+		}
+		t := v.Type()
+		for i := 0; i < v.NumField(); i++ {
+			fv := v.Field(i)
+			ft := t.Field(i)
+			if !fv.CanSet() {
+				continue
+			}
+			// Derive env var key from json tag, falling back to kebab-case field name.
+			name := kebabCase(ft.Name)
+			if jsonTag := ft.Tag.Get("json"); jsonTag != "" {
+				if parts := strings.SplitN(jsonTag, ",", 2); parts[0] != "" && parts[0] != "-" {
+					name = parts[0]
+				}
+			}
+			envKey := prefix + strings.ToUpper(strings.ReplaceAll(name, "-", "_"))
+			if fv.Kind() == reflect.Struct {
+				if fv.CanAddr() {
+					applyEnvOverrides(fv.Addr().Interface(), envKey+"_")
+				}
+				continue
+			}
+			val, ok := os.LookupEnv(envKey)
+			if !ok {
+				continue
+			}
+			switch fv.Kind() {
+			case reflect.String:
+				fv.SetString(val)
+			case reflect.Bool:
+				fv.SetBool(val == "true" || val == "1")
+			case reflect.Int:
+				if n, err := strconv.Atoi(val); err == nil {
+					fv.SetInt(int64(n))
+				}
+			case reflect.Int64:
+				if fv.Type() == reflect.TypeFor[time.Duration]() {
+					if d, err := time.ParseDuration(val); err == nil {
+						fv.SetInt(int64(d))
+					}
+				} else if n, err := strconv.ParseInt(val, 10, 64); err == nil {
+					fv.SetInt(n)
+				}
+			}
+		}
+	}
+
 	cli := &CLI{}
 	cfg := &Config{}
 
 	appName := resolveAppName()
 	configFile := resolveConfigFile(appName)
 
+	// Resolve config in order: default → config file → env var
 	applyStructDefaults(cfg)
+	loadConfig(configFile, cfg)
+	applyEnvOverrides(cfg, strings.ToUpper(appName)+"_")
 
-	flatCache := buildFlatCache(configFile, cfg)
-
-	jsonResolver := kong.ResolverFunc(func(_ *kong.Context, _ *kong.Path, flag *kong.Flag) (any, error) {
-		for _, env := range flag.Envs {
-			if _, ok := os.LookupEnv(env); ok {
-				return nil, nil
-			}
-		}
-		if val, ok := flatCache[flag.Name]; ok {
-			return val, nil
-		}
-		return nil, nil
-	})
-
-	type1 := reflect.TypeFor[CLI]()
-	type2 := reflect.TypeFor[Config]()
-	transformedConfigType := transformStructType(type2)
-
-	combinedType := reflect.StructOf([]reflect.StructField{
-		{Name: "CLI", Type: type1, Anonymous: true},
-		{Name: "Config", Type: transformedConfigType, Anonymous: true},
-	})
-	combinedVal := reflect.New(combinedType)
-	combinedVal.Elem().Field(0).Set(reflect.ValueOf(cli).Elem())
-	recursivelyCopy(reflect.ValueOf(cfg).Elem(), combinedVal.Elem().Field(1))
-
-	ctx := kong.Parse(combinedVal.Interface(),
+	ctx := kong.Parse(cli,
 		kong.Name(appName),
 		kong.Description(AppDescription),
 		kong.UsageOnError(),
@@ -266,13 +214,7 @@ func main() {
 			Compact: true,
 			Tree:    true,
 		}),
-		kong.Configuration(kong.JSON),
-		kong.DefaultEnvars(strings.ToUpper(appName)),
-		kong.Resolvers(jsonResolver),
 	)
-
-	reflect.ValueOf(cli).Elem().Set(combinedVal.Elem().Field(0))
-	recursivelyCopy(combinedVal.Elem().Field(1), reflect.ValueOf(cfg).Elem())
 
 	ctx.Bind(cfg)
 	ctx.Bind(ConfigPath(configFile))
