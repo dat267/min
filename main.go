@@ -158,29 +158,34 @@ func main() {
 		_ = json.Unmarshal(data, &rawMap)
 	}
 
-	var markExplicit func(map[string]any, string) error
-	markExplicit = func(m map[string]any, prefix string) error {
+	explicitlySetPaths := make(map[string]string)
+
+	var markExplicit func(map[string]any, string, string) error
+	markExplicit = func(m map[string]any, flatPrefix string, dotPrefix string) error {
 		for k, v := range m {
-			key := k
-			if prefix != "" {
-				key = prefix + "-" + k
+			flatKey := k
+			dotKey := k
+			if flatPrefix != "" {
+				flatKey = flatPrefix + "-" + k
+				dotKey = dotPrefix + "." + k
 			}
 			if sub, ok := v.(map[string]any); ok {
-				if err := markExplicit(sub, key); err != nil {
+				if err := markExplicit(sub, flatKey, dotKey); err != nil {
 					return err
 				}
 			} else {
-				if _, ok := configFields[key]; ok {
-					if explicitlySet[key] {
-						return fmt.Errorf("duplicate configuration key %q in config file", key)
+				if _, ok := configFields[flatKey]; ok {
+					if prev, exists := explicitlySetPaths[flatKey]; exists {
+						return fmt.Errorf("both %q and %q map to the same configuration field", prev, dotKey)
 					}
-					explicitlySet[key] = true
+					explicitlySetPaths[flatKey] = dotKey
+					explicitlySet[flatKey] = true
 				}
 			}
 		}
 		return nil
 	}
-	if err := markExplicit(rawMap, ""); err != nil {
+	if err := markExplicit(rawMap, "", ""); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v at %s\n", err, configFile)
 		os.Exit(1)
 	}
