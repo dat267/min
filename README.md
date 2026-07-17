@@ -10,7 +10,6 @@ It is designed to be completely reusable, allowing developers to add new subcomm
 - **Collision-Free Path Mapping**: Subcommand flags map strictly to nested global configuration properties based on their Go structure paths, preventing naming collisions.
 - **Vanilla Go Type Safety**: Leverages Go's native type system without requiring custom parser wrappers or complex serialization unmarshalers.
 - **Automatic Environment Variable Documentation**: Derived environment variables are documented dynamically on command-line `--help` screens.
-- **Secure Templating**: Configuration template initializers generate clean settings directly from struct tags, keeping environment variables and secrets secure.
 
 ---
 
@@ -100,7 +99,3 @@ The framework automatically maps subcommand options to global configuration prop
 Because the framework maps subcommand flags dynamically, **the field name in your subcommand struct must reflect the Go structure path of the target global configuration property**:
 - To map to global `Config.Core.Timeout` (flat key `"core-timeout"`), the subcommand option field **must be named `CoreTimeout`** to produce the flag `--core-timeout`.
 - If you name the field `Timeout`, it will produce the flag `--timeout`, which does not match `"core-timeout"` and will act only as a local command flag without inheriting configuration or environment variable overrides.
-
-#### Specificity Best Practice
-- If a parameter is a global config option (e.g. `CoreTimeout`), define its primary fallback default tag on the `Config` struct in `main.go`.
-- If a subcommand needs to run with a more specific timeout default than the rest of the application, define the `default:"<value>"` tag on that subcommand's option (e.g., `default:"10s"` on the subcommand flag). The framework will automatically prefer the subcommand's default over the global default when no config file or env var is set.
