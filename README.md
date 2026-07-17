@@ -1,14 +1,28 @@
-# Developer Guide: Adding & Configuring Subcommands
+# min CLI Framework
 
-This guide explains how to add new subcommands, configure flags, and bind options to the global configuration in the `min` CLI framework.
+`min` is a lightweight, declarative, and type-safe CLI boilerplate framework built in Go using `github.com/alecthomas/kong`. 
+
+It is designed to be completely reusable, allowing developers to add new subcommands or configuration properties by editing only Go structs.
+
+## Features
+- **Strict Override Specificity**: `CLI flag > Env Var > Config File > Subcommand Default > Root Default` resolved universally.
+- **Root Command Cleanliness**: Config options are only exposed on subcommands that explicitly define them, preventing global option pollution on the root `--help` output.
+- **Collision-Free Path Mapping**: Subcommand flags map strictly to nested global configuration properties based on their Go structure paths, preventing naming collisions.
+- **Vanilla Go Type Safety**: Leverages Go's native type system without requiring custom parser wrappers or complex serialization unmarshalers.
+- **Automatic Environment Variable Documentation**: Derived environment variables are documented dynamically on command-line `--help` screens.
+- **Secure Templating**: Configuration template initializers generate clean settings directly from struct tags, keeping environment variables and secrets secure.
 
 ---
 
-## 1. How to Add a New Subcommand
+## Developer Guide: Adding & Configuring Subcommands
+
+This section explains how to add new subcommands, configure flags, and bind options to the global configuration.
+
+### 1. How to Add a New Subcommand
 
 Adding a subcommand involves three steps:
 
-### Step 1: Define the Command Struct
+#### Step 1: Define the Command Struct
 Create a new struct representing the command. Any fields defined inside this struct will automatically become command-line flags or positional arguments.
 
 ```go
@@ -17,7 +31,7 @@ type DiagnosticCmd struct {
 }
 ```
 
-### Step 2: Implement the `Run` Method
+#### Step 2: Implement the `Run` Method
 Implement a `Run` method for your struct. Kong automatically injects dependencies (like the global `*Config` or `ConfigPath`) when executing the method:
 
 ```go
@@ -30,7 +44,7 @@ func (cmd *DiagnosticCmd) Run(cfg *Config) error {
 }
 ```
 
-### Step 3: Register the Subcommand
+#### Step 3: Register the Subcommand
 Add your new command to the root `CLI` struct inside `main.go` using the `cmd:""` tag:
 
 ```go
@@ -45,7 +59,7 @@ type CLI struct {
 
 ---
 
-## 2. Kong Struct Tags & Their Effects
+### 2. Kong Struct Tags & Their Effects
 
 Kong parses command-line arguments dynamically based on struct tags. Here is a comprehensive reference of all available tags:
 
@@ -63,9 +77,9 @@ Kong parses command-line arguments dynamically based on struct tags. Here is a c
 
 ---
 
-## 3. Configuration & Specificity Precedence
+### 3. Configuration & Specificity Precedence
 
-Any option defined on a subcommand that matches a key in the global `Config` struct (matched using kebab-case or prefix suffixes, e.g. `CoreTimeout` or `Timeout` mapping to `core.timeout`) automatically inherits the full configuration hierarchy.
+Any option defined on a subcommand that matches a key in the global `Config` struct (matched using kebab-case paths, e.g. `CoreTimeout` mapping to `core.timeout`) automatically inherits the full configuration hierarchy.
 
 The priority order is strictly resolved as follows:
 
@@ -77,9 +91,8 @@ graph TD
     D --> E[5. Global Config Default]
 ```
 
-### Flag Name and Path Mapping
+#### Flag Name and Path Mapping
 The framework automatically maps subcommand options to global configuration properties:
-
 - If you define `CoreTimeout string` on your subcommand, it maps strictly to `core.timeout` in `Config` (env: `$MIN_CORE_TIMEOUT`).
 - Any flag name that does not match a global config field (e.g. if you define a local option `Timeout string`) remains entirely local to the subcommand and does not conflict with the global configuration.
 
@@ -88,6 +101,6 @@ Because the framework maps subcommand flags dynamically, **the field name in you
 - To map to global `Config.Core.Timeout` (flat key `"core-timeout"`), the subcommand option field **must be named `CoreTimeout`** to produce the flag `--core-timeout`.
 - If you name the field `Timeout`, it will produce the flag `--timeout`, which does not match `"core-timeout"` and will act only as a local command flag without inheriting configuration or environment variable overrides.
 
-### Specificity Best Practice
+#### Specificity Best Practice
 - If a parameter is a global config option (e.g. `CoreTimeout`), define its primary fallback default tag on the `Config` struct in `main.go`.
 - If a subcommand needs to run with a more specific timeout default than the rest of the application, define the `default:"<value>"` tag on that subcommand's option (e.g., `default:"10s"` on the subcommand flag). The framework will automatically prefer the subcommand's default over the global default when no config file or env var is set.
