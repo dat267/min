@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -28,8 +29,8 @@ type Config struct {
 }
 
 type CoreConfig struct {
-	Timeout time.Duration `json:"timeout"`
-	Retries int           `json:"retries"`
+	Timeout time.Duration `json:"timeout" default:"2m"`
+	Retries int           `json:"retries" default:"3"`
 }
 
 type CLI struct {
@@ -72,82 +73,149 @@ func main() {
 	appName := resolveAppName()
 	configFile := resolveConfigFile(appName)
 
-	// 1. Initialize runtime config with hardcoded defaults.
-	runtimeCfg := &Config{
-		Core: CoreConfig{
-			Timeout: 2 * time.Minute,
-			Retries: 3,
-		},
+	// String formatting helper (PascalCase to kebab-case).
+	kebabCase := func(s string) string {
+		var sb strings.Builder
+		sb.Grow(len(s) + 4)
+		for i, r := range s {
+			if i > 0 && r >= 'A' && r <= 'Z' {
+				sb.WriteRune('-')
+			}
+			if r >= 'A' && r <= 'Z' {
+				sb.WriteRune(r + ('a' - 'A'))
+			} else {
+				sb.WriteRune(r)
+			}
+		}
+		return sb.String()
 	}
 
-	// 2. Override with JSON config file values if present.
+	// Helper to set a reflect.Value from a string.
+	setFieldValue := func(fv reflect.Value, s string) {
+		switch fv.Kind() {
+		case reflect.String:
+			fv.SetString(s)
+		case reflect.Bool:
+			fv.SetBool(s == "true" || s == "1")
+		case reflect.Int, reflect.Int64:
+			if fv.Type() == reflect.TypeFor[time.Duration]() {
+				if d, err := time.ParseDuration(s); err == nil {
+					fv.SetInt(int64(d))
+				} else if ns, err := strconv.ParseInt(s, 10, 64); err == nil {
+					fv.SetInt(ns)
+				}
+			} else {
+				if n, err := strconv.ParseInt(s, 10, 64); err == nil {
+					fv.SetInt(n)
+				}
+			}
+		}
+	}
+
+	// Recursive loader for environment variables and default tags.
+	var loadEnvAndDefaults func(reflect.Value, string, string)
+	loadEnvAndDefaults = func(val reflect.Value, prefix string, envPrefix string) {
+		val = reflect.Indirect(val)
+		if val.Kind() != reflect.Struct {
+			return
+		}
+		t := val.Type()
+		for i := 0; i < val.NumField(); i++ {
+			fv := val.Field(i)
+			ft := t.Field(i)
+			if !fv.CanSet() {
+				continue
+			}
+
+			name := kebabCase(ft.Name)
+			if jsonTag := ft.Tag.Get("json"); jsonTag != "" {
+				if parts := strings.Split(jsonTag, ","); parts[0] != "" && parts[0] != "-" {
+					name = parts[0]
+				}
+			}
+
+			fullKey := name
+			if prefix != "" {
+				fullKey = prefix + "-" + name
+			}
+
+			envKey := envPrefix + strings.ToUpper(strings.ReplaceAll(name, "-", "_"))
+
+			if fv.Kind() == reflect.Struct && fv.Type() != reflect.TypeFor[time.Duration]() {
+				loadEnvAndDefaults(fv, fullKey, envKey+"_")
+				continue
+			}
+
+			// Env override has higher precedence.
+			if val, ok := os.LookupEnv(envKey); ok {
+				setFieldValue(fv, val)
+				continue
+			}
+
+			// Apply struct default tag if value is still zero.
+			if defaultVal, ok := ft.Tag.Lookup("default"); ok && fv.IsZero() {
+				setFieldValue(fv, defaultVal)
+			}
+		}
+	}
+
+	// Recursive helper to build a flat map of config keys to reflect.Values.
+	var buildFlatMap func(reflect.Value, string, map[string]reflect.Value)
+	buildFlatMap = func(val reflect.Value, prefix string, dest map[string]reflect.Value) {
+		val = reflect.Indirect(val)
+		if val.Kind() != reflect.Struct {
+			return
+		}
+		t := val.Type()
+		for i := 0; i < val.NumField(); i++ {
+			fv := val.Field(i)
+			ft := t.Field(i)
+
+			name := kebabCase(ft.Name)
+			if jsonTag := ft.Tag.Get("json"); jsonTag != "" {
+				if parts := strings.Split(jsonTag, ","); parts[0] != "" && parts[0] != "-" {
+					name = parts[0]
+				}
+			}
+
+			fullKey := name
+			if prefix != "" {
+				fullKey = prefix + "-" + name
+			}
+
+			if fv.Kind() == reflect.Struct && fv.Type() != reflect.TypeFor[time.Duration]() {
+				buildFlatMap(fv, fullKey, dest)
+			} else {
+				dest[fullKey] = fv
+				if prefix != "" {
+					dest[name] = fv
+				}
+			}
+		}
+	}
+
+	runtimeCfg := &Config{}
+
+	// 1. Load config file values.
 	if data, err := os.ReadFile(filepath.Clean(configFile)); err == nil {
 		_ = json.Unmarshal(data, runtimeCfg)
 	}
 
-	// 3. Override with environment variables.
-	getEnv := func(keys ...string) (string, bool) {
-		for _, k := range keys {
-			if val, ok := os.LookupEnv(k); ok {
-				return val, true
-			}
-		}
-		return "", false
-	}
+	// 2. Load env overrides and apply struct default tags.
+	envPrefix := strings.ToUpper(appName) + "_"
+	loadEnvAndDefaults(reflect.ValueOf(runtimeCfg), "", envPrefix)
 
-	appNameUpper := strings.ToUpper(appName)
-	if val, ok := getEnv(appNameUpper + "_ADMIN_TOKEN"); ok {
-		runtimeCfg.AdminToken = val
-	}
-	if val, ok := getEnv(appNameUpper+"_CORE_TIMEOUT", appNameUpper+"_TIMEOUT"); ok {
-		if d, err := time.ParseDuration(val); err == nil {
-			runtimeCfg.Core.Timeout = d
-		} else if ns, err := strconv.ParseInt(val, 10, 64); err == nil {
-			runtimeCfg.Core.Timeout = time.Duration(ns)
-		}
-	}
-	if val, ok := getEnv(appNameUpper+"_CORE_RETRIES", appNameUpper+"_RETRIES"); ok {
-		if r, err := strconv.Atoi(val); err == nil {
-			runtimeCfg.Core.Retries = r
-		}
-	}
-	if val, ok := getEnv(appNameUpper + "_DEBUG"); ok {
-		runtimeCfg.Debug = (val == "true" || val == "1")
-	}
-	if val, ok := getEnv(appNameUpper + "_DRY_RUN"); ok {
-		runtimeCfg.DryRun = (val == "true" || val == "1")
-	}
-
-	resolveKeys := func(name string) []string {
-		if suffix, found := strings.CutPrefix(name, "core-"); found {
-			return []string{name, suffix}
-		}
-		return []string{name, "core-" + name}
-	}
-
-	// Helper to get resolved config values for a given flag name.
-	resolveConfigValue := func(name string) (any, bool) {
-		for _, key := range resolveKeys(name) {
-			switch key {
-			case "core-timeout":
-				return runtimeCfg.Core.Timeout.String(), true
-			case "core-retries":
-				return fmt.Sprintf("%d", runtimeCfg.Core.Retries), true
-			case "admin-token":
-				return runtimeCfg.AdminToken, true
-			case "debug":
-				return fmt.Sprintf("%t", runtimeCfg.Debug), true
-			case "dry-run":
-				return fmt.Sprintf("%t", runtimeCfg.DryRun), true
-			}
-		}
-		return nil, false
-	}
+	// 3. Build a flat map of config keys to reflect.Values for the resolver and flag syncing.
+	configFields := make(map[string]reflect.Value)
+	buildFlatMap(reflect.ValueOf(runtimeCfg), "", configFields)
 
 	// Resolver to supply configuration values as defaults for subcommand flags.
 	configResolver := kong.ResolverFunc(func(ctx *kong.Context, parent *kong.Path, flag *kong.Flag) (any, error) {
-		if val, ok := resolveConfigValue(flag.Name); ok {
-			return val, nil
+		if fv, ok := configFields[flag.Name]; ok {
+			if fv.Type() == reflect.TypeFor[time.Duration]() {
+				return fv.Interface().(time.Duration).String(), nil
+			}
+			return fmt.Sprintf("%v", fv.Interface()), nil
 		}
 		return nil, nil
 	})
@@ -166,29 +234,8 @@ func main() {
 
 	// Sync any resolved subcommand flags back to the runtime configuration.
 	for _, flag := range ctx.Flags() {
-		for _, key := range resolveKeys(flag.Name) {
-			switch key {
-			case "core-timeout":
-				if d, ok := flag.Target.Interface().(time.Duration); ok {
-					runtimeCfg.Core.Timeout = d
-				}
-			case "core-retries":
-				if r, ok := flag.Target.Interface().(int); ok {
-					runtimeCfg.Core.Retries = r
-				}
-			case "admin-token":
-				if s, ok := flag.Target.Interface().(string); ok {
-					runtimeCfg.AdminToken = s
-				}
-			case "debug":
-				if b, ok := flag.Target.Interface().(bool); ok {
-					runtimeCfg.Debug = b
-				}
-			case "dry-run":
-				if b, ok := flag.Target.Interface().(bool); ok {
-					runtimeCfg.DryRun = b
-				}
-			}
+		if fv, ok := configFields[flag.Name]; ok {
+			fv.Set(flag.Target)
 		}
 	}
 
