@@ -251,4 +251,61 @@ func TestParameterSpecificity(t *testing.T) {
 	if cfg8b.AdminToken != "local-json-token" {
 		t.Errorf("expected admin-token = \"local-json-token\", got %q", cfg8b.AdminToken)
 	}
+
+	// Scenario 9: Explicit empty, zero, and null config values
+	// 9a. Explicit zero and empty string values in config file should be preserved (not overridden by defaults)
+	zeroConfigPath := filepath.Join(tmpDir, "zero_config.json")
+	zeroConfigJSON := `{
+		"core": {
+			"timeout": "",
+			"retries": 0
+		}
+	}`
+	if err := os.WriteFile(zeroConfigPath, []byte(zeroConfigJSON), 0600); err != nil {
+		t.Fatalf("failed to write zero config file: %v", err)
+	}
+	cfg9a, err := runConfigShow(nil, "--config-file", zeroConfigPath)
+	if err != nil {
+		t.Fatalf("Scenario 9a failed: %v", err)
+	}
+	if cfg9a.Core.Timeout != "" {
+		t.Errorf("expected explicit empty timeout to be preserved, got %q", cfg9a.Core.Timeout)
+	}
+	if cfg9a.Core.Retries != 0 {
+		t.Errorf("expected explicit zero retries to be preserved, got %d", cfg9a.Core.Retries)
+	}
+
+	// 9b. Explicit zero and empty string values in env variables should be preserved
+	cfg9b, err := runConfigShow([]string{"MIN_CORE_TIMEOUT=", "MIN_CORE_RETRIES=0"}, "--config-file", emptyConfigPath)
+	if err != nil {
+		t.Fatalf("Scenario 9b failed: %v", err)
+	}
+	if cfg9b.Core.Timeout != "" {
+		t.Errorf("expected explicit empty timeout from env to be preserved, got %q", cfg9b.Core.Timeout)
+	}
+	if cfg9b.Core.Retries != 0 {
+		t.Errorf("expected explicit zero retries from env to be preserved, got %d", cfg9b.Core.Retries)
+	}
+
+	// 9c. Explicit null values in JSON should fall back to defaults
+	nullConfigPath := filepath.Join(tmpDir, "null_config.json")
+	nullConfigJSON := `{
+		"core": {
+			"timeout": null,
+			"retries": null
+		}
+	}`
+	if err := os.WriteFile(nullConfigPath, []byte(nullConfigJSON), 0600); err != nil {
+		t.Fatalf("failed to write null config file: %v", err)
+	}
+	cfg9c, err := runConfigShow(nil, "--config-file", nullConfigPath)
+	if err != nil {
+		t.Fatalf("Scenario 9c failed: %v", err)
+	}
+	if cfg9c.Core.Timeout != "2m" {
+		t.Errorf("expected null timeout in JSON to fall back to default '2m', got %q", cfg9c.Core.Timeout)
+	}
+	if cfg9c.Core.Retries != 3 {
+		t.Errorf("expected null retries in JSON to fall back to default 3, got %d", cfg9c.Core.Retries)
+	}
 }

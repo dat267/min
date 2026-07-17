@@ -25,6 +25,7 @@ type Config struct {
 	Core       CoreConfig `json:"core"`
 	Debug      bool       `json:"debug"`
 	DryRun     bool       `json:"dry-run"`
+	// Shout      bool       `json:"shout"`
 }
 
 type CoreConfig struct {
@@ -175,11 +176,13 @@ func main() {
 				}
 			} else {
 				if _, ok := configFields[flatKey]; ok {
-					if prev, exists := explicitlySetPaths[flatKey]; exists {
-						return fmt.Errorf("both %q and %q are defined", prev, dotKey)
+					if v != nil {
+						if prev, exists := explicitlySetPaths[flatKey]; exists {
+							return fmt.Errorf("both %q and %q are defined", prev, dotKey)
+						}
+						explicitlySetPaths[flatKey] = dotKey
+						explicitlySet[flatKey] = true
 					}
-					explicitlySetPaths[flatKey] = dotKey
-					explicitlySet[flatKey] = true
 				}
 			}
 		}
@@ -219,7 +222,7 @@ func main() {
 		isConfigCmd = strings.HasPrefix(traceCtx.Command(), "config")
 	}
 
-	if err := markExplicit(rawMap, "", ""); err != nil && !isConfigCmd {
+	if err = markExplicit(rawMap, "", ""); err != nil && !isConfigCmd {
 		fmt.Fprintf(os.Stderr, "error: duplicate config keys in %s: %v. Run '%s config edit' to fix this.\n", configFile, err, appName)
 		os.Exit(1)
 	}
@@ -231,7 +234,7 @@ func main() {
 		if val, ok := os.LookupEnv(envKey); ok {
 			setFieldValue(field.value, val)
 			explicitlySet[key] = true
-		} else if field.defaultTag != "" && field.value.IsZero() {
+		} else if field.defaultTag != "" && !explicitlySet[key] && field.value.IsZero() {
 			setFieldValue(field.value, field.defaultTag)
 		}
 	}
