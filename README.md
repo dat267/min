@@ -99,3 +99,8 @@ The framework automatically maps subcommand options to global configuration prop
 Because the framework maps subcommand flags dynamically, **the field name in your subcommand struct must reflect the Go structure path of the target global configuration property**:
 - To map to global `Config.Core.Timeout` (flat key `"core-timeout"`), the subcommand option field **must be named `CoreTimeout`** to produce the flag `--core-timeout`.
 - If you name the field `Timeout`, it will produce the flag `--timeout`, which does not match `"core-timeout"` and will act only as a local command flag without inheriting configuration or environment variable overrides.
+
+#### Duplicate Key Detection
+To ensure configuration integrity, the framework enforces unique leaf-level paths within the JSON configuration file:
+- If the configuration file defines the same setting in multiple forms (e.g. including flat `"core-timeout": "5m"` at the root level and nested `"core": {"timeout": "10m"}`), the parser will fail immediately with a validation error:
+  `error: duplicate configuration key "core-timeout" in config file`
