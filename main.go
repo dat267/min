@@ -219,6 +219,9 @@ func main() {
 	configResolver := kong.ResolverFunc(func(ctx *kong.Context, parent *kong.Path, flag *kong.Flag) (any, error) {
 		if field, ok := configFields[flag.Name]; ok {
 			fv := field.value
+			if fv.IsZero() {
+				return nil, nil
+			}
 			if fv.Type() == reflect.TypeFor[Duration]() {
 				return fv.Interface().(Duration).String(), nil
 			}
