@@ -176,7 +176,7 @@ func main() {
 			} else {
 				if _, ok := configFields[flatKey]; ok {
 					if prev, exists := explicitlySetPaths[flatKey]; exists {
-						return fmt.Errorf("both %q and %q map to the same field (defining both flat and nested forms of the same key is not supported)", prev, dotKey)
+						return fmt.Errorf("both %q and %q are defined", prev, dotKey)
 					}
 					explicitlySetPaths[flatKey] = dotKey
 					explicitlySet[flatKey] = true
@@ -220,7 +220,7 @@ func main() {
 	}
 
 	if err := markExplicit(rawMap, "", ""); err != nil && !isConfigCmd {
-		fmt.Fprintf(os.Stderr, "error: %v at %s\n", err, configFile)
+		fmt.Fprintf(os.Stderr, "error: duplicate config keys in %s: %v. Run '%s config edit' to fix this.\n", configFile, err, appName)
 		os.Exit(1)
 	}
 
