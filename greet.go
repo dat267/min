@@ -3,14 +3,13 @@ package main
 import (
 	"fmt"
 	"strings"
-	"time"
 )
 
 type GreetCmd struct {
-	Name        string        `arg:"" help:"Name of the person to greet." default:"World"`
-	Shout       bool          `short:"s" help:"Convert the greeting to uppercase."`
-	Times       int           `short:"t" help:"Number of times to repeat the greeting." default:"1"`
-	CoreTimeout time.Duration `help:"Core timeout override"`
+	Name        string   `arg:"" help:"Name of the person to greet." default:"World"`
+	Shout       bool     `short:"s" help:"Convert the greeting to uppercase."`
+	Times       int      `short:"t" help:"Number of times to repeat the greeting." default:"1"`
+	CoreTimeout Duration `help:"Core timeout override"`
 }
 
 func (cmd *GreetCmd) Run() error {
