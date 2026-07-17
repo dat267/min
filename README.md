@@ -103,4 +103,4 @@ Because the framework maps subcommand flags dynamically, **the field name in you
 #### Duplicate Key Detection
 To ensure configuration integrity, the framework enforces unique leaf-level paths within the JSON configuration file:
 - If the configuration file defines the same setting in multiple forms (e.g. including flat `"core-timeout": "5m"` at the root level and nested `"core": {"timeout": "10m"}`), the parser will fail immediately with a validation error:
-  `error: both "core-timeout" and "core.timeout" map to the same configuration field at /home/dat/.config/min/min.json`
+  `error: both "core-timeout" and "core.timeout" map to the same field (defining both flat and nested forms of the same key is not supported) at /home/dat/.config/min/min.json`

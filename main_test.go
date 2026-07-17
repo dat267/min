@@ -214,7 +214,7 @@ func TestParameterSpecificity(t *testing.T) {
 	if err == nil {
 		t.Errorf("Scenario 7 failed: expected command to fail with duplicate config file, but it succeeded")
 	} else {
-		if !strings.Contains(err.Error(), "map to the same configuration field") {
+		if !strings.Contains(err.Error(), "map to the same field") {
 			t.Errorf("expected error message to mention configuration mapping collision, got: %v", err)
 		}
 	}

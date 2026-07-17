@@ -176,7 +176,7 @@ func main() {
 			} else {
 				if _, ok := configFields[flatKey]; ok {
 					if prev, exists := explicitlySetPaths[flatKey]; exists {
-						return fmt.Errorf("both %q and %q map to the same configuration field", prev, dotKey)
+						return fmt.Errorf("both %q and %q map to the same field (defining both flat and nested forms of the same key is not supported)", prev, dotKey)
 					}
 					explicitlySetPaths[flatKey] = dotKey
 					explicitlySet[flatKey] = true
