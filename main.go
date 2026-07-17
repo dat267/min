@@ -205,14 +205,6 @@ func main() {
 	envPrefix := strings.ToUpper(appName) + "_"
 	loadEnvAndDefaults(reflect.ValueOf(runtimeCfg), "", envPrefix)
 
-	// Helper to resolve potential flag names (both with/without "core-" prefix).
-	resolveKeys := func(name string) []string {
-		if suffix, found := strings.CutPrefix(name, "core-"); found {
-			return []string{name, suffix}
-		}
-		return []string{name, "core-" + name}
-	}
-
 	// 3. Build a flat map of config keys to reflect.Values for the resolver and flag syncing.
 	configFields := make(map[string]reflect.Value)
 	buildFlatMap(reflect.ValueOf(runtimeCfg), "", configFields)
@@ -229,55 +221,17 @@ func main() {
 	})
 
 	cli := &CLI{}
-	k, err := kong.New(cli,
+	ctx := kong.Parse(cli,
 		kong.Name(appName),
 		kong.Description(AppDescription),
 		kong.UsageOnError(),
+		kong.DefaultEnvars(strings.ToUpper(appName)),
 		kong.Resolvers(configResolver),
 		kong.ConfigureHelp(kong.HelpOptions{
 			Compact: true,
 			Tree:    true,
 		}),
 	)
-	if err != nil {
-		panic(err)
-	}
-
-	// Walk nodes to dynamically associate env variables so they show in --help.
-	var walkNodes func(*kong.Node)
-	walkNodes = func(node *kong.Node) {
-		if node == nil {
-			return
-		}
-		for _, flag := range node.Flags {
-			if len(flag.Envs) == 0 {
-				if _, ok := configFields[flag.Name]; !ok {
-					continue
-				}
-				var envs []string
-				for _, key := range resolveKeys(flag.Name) {
-					envKey := envPrefix + strings.ToUpper(strings.ReplaceAll(key, "-", "_"))
-					envs = append(envs, envKey)
-				}
-				flag.Envs = envs
-				if len(envs) > 0 {
-					envDoc := "$" + strings.Join(envs, ", $")
-					if flag.Help != "" {
-						flag.Help = fmt.Sprintf("%s (%s)", flag.Help, envDoc)
-					} else {
-						flag.Help = fmt.Sprintf("(%s)", envDoc)
-					}
-				}
-			}
-		}
-		for _, child := range node.Children {
-			walkNodes(child)
-		}
-	}
-	walkNodes(k.Model.Node)
-
-	ctx, err := k.Parse(os.Args[1:])
-	k.FatalIfErrorf(err)
 
 	// Sync any resolved subcommand flags back to the runtime configuration.
 	for _, flag := range ctx.Flags() {
