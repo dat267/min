@@ -102,6 +102,8 @@ func main() {
 	if val, ok := getEnv(appNameUpper+"_CORE_TIMEOUT", appNameUpper+"_TIMEOUT"); ok {
 		if d, err := time.ParseDuration(val); err == nil {
 			runtimeCfg.Core.Timeout = d
+		} else if ns, err := strconv.ParseInt(val, 10, 64); err == nil {
+			runtimeCfg.Core.Timeout = time.Duration(ns)
 		}
 	}
 	if val, ok := getEnv(appNameUpper+"_CORE_RETRIES", appNameUpper+"_RETRIES"); ok {
