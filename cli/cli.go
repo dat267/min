@@ -64,6 +64,7 @@ type App struct {
 	cfgLoaded bool
 	cfgFlat   map[string]any
 	defCmd    string
+	hasYes    bool
 }
 
 func WithName(s string) Option       { return func(a *App) { a.name = s } }
@@ -290,6 +291,13 @@ func (a *App) parseOne(args []string, i *int, flags []*flag, cur *cmd) error {
 				a.help(cur)
 				return errHelp
 			}
+			if ch == 'y' {
+				a.hasYes = true
+				if rest := arg[ci+2:]; rest == "false" || rest == "0" {
+					a.hasYes = false
+				}
+				continue
+			}
 			rest := arg[ci+2:]
 			f := a.flagByName(string(ch), flags)
 			if f == nil {
@@ -324,6 +332,22 @@ func (a *App) parseOne(args []string, i *int, flags []*flag, cur *cmd) error {
 	if name == "help" || name == "h" {
 		a.help(cur)
 		return errHelp
+	}
+	if name == "yes" || name == "y" {
+		a.hasYes = true
+		if val == "false" || val == "0" {
+			a.hasYes = false
+		}
+		return nil
+	}
+	if name == "config-file" {
+		if val != "" {
+			a.cfg = val
+		} else if *i+1 < len(args) {
+			*i++
+			a.cfg = args[*i]
+		}
+		return nil
 	}
 	if name == "version" && a.ver != "" {
 		fmt.Println(a.ver)
@@ -361,7 +385,11 @@ func (a *App) Parse(args []string) error {
 		if k, _, _ := strings.Cut(name, "="); k != name {
 			continue // has explicit =value, no consumption
 		}
-		if name == "h" || name == "help" {
+		if name == "h" || name == "help" || name == "y" || name == "yes" {
+			continue
+		}
+		if name == "config-file" {
+			i++ // skip value
 			continue
 		}
 		f := a.flagByName(name, a.allFlagsDeep(r))
@@ -394,14 +422,20 @@ foundSub:
 		for i := 0; i < len(remain); i++ {
 			arg := remain[i]
 			if strings.HasPrefix(arg, "-") {
-				// Skip flag values too
 				name := strings.TrimLeft(arg, "-")
 				if k, _, _ := strings.Cut(name, "="); k != name {
 					continue
 				}
+				if name == "h" || name == "help" || name == "y" || name == "yes" {
+					continue
+				}
+				if name == "config-file" {
+					i++
+					continue
+				}
 				f := a.flagByName(name, a.allFlagsDeep(r))
 				if f != nil && f.val.Kind() != reflect.Bool {
-					i++ // skip value
+					i++
 				}
 				continue
 			}
@@ -490,7 +524,7 @@ foundSub:
 		}
 	}
 	if len(missing) > 0 {
-		if a.prompt && isInteractive() {
+		if a.prompt && isInteractive() && !a.hasYes {
 			for _, f := range cur.flags {
 				if f.tag.Req && f.val.IsZero() {
 					fmt.Fprintf(os.Stderr, "%s (--%s): ", f.tag.Help, f.name)
@@ -602,6 +636,13 @@ func (a *App) help(cur *cmd) {
 	}
 	fmt.Println("\nFlags:")
 	fmt.Println("  -h, --help    Print help")
+	if a.prompt {
+		fmt.Println("  -y, --yes    Skip interactive prompts")
+	}
+	if a.pre != "" {
+		env := a.pre + "CONFIG_FILE"
+		fmt.Printf("      --config-file <PATH>    Path to config file [env: %s]\n", env)
+	}
 	for _, f := range fls {
 		b := "  "
 		if f.tag.Short != "" {

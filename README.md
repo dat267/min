@@ -8,10 +8,11 @@ Usage: min <command> [flags]
 Commands:
   config    Manage application configuration
   greet     Print a personalized greeting message
+  demo      Demonstrate interactive prompting for required flags
 
 Flags:
   -h, --help                  Print help
-  -y, --yes                   Skip interactive prompts [env: MIN_YES]
+  -y, --yes                   Skip interactive prompts
       --config-file <PATH>    Path to config file [env: MIN_CONFIG_FILE]
       --admin-token <ADMIN-TOKEN>  Admin token [env: MIN_ADMIN_TOKEN]
       --core-timeout <CORE-TIMEOUT>  Core timeout [default: 10s] [env: MIN_CORE_TIMEOUT]
@@ -30,8 +31,6 @@ Every source overrides the next. Config file supports both nested
 (`{"core":{"timeout":"5m"}}`) and flat (`{"core-timeout":"5m"}`) keys.
 
 ## Struct tags
-
-Flags and arguments use Go struct tags:
 
 ```go
 type GreetCmd struct {
@@ -53,9 +52,8 @@ type GreetCmd struct {
 
 ## Config schema
 
-Config values exposed via `json:"key"` tags. The `Cmd` struct is the
-single source of truth — `ConfigFields()` and `ConfigDefaults()` use
-reflect to read the schema:
+Config values exposed via `json:"key"` tags on `Cmd`. `ConfigFields()`
+and `ConfigDefaults()` use reflect to read the schema — no repetition.
 
 ```go
 type Cmd struct {
@@ -64,61 +62,47 @@ type Cmd struct {
     CoreRetries int    `help:"Core retries" default:"3" json:"core-retries"`
     Debug       bool   `help:"Enable debug mode" json:"debug"`
     DryRun      bool   `help:"Enable dry run mode" json:"dry-run"`
-    Config      ConfigCmdGroup `help:"Manage configuration" cmd:""`
-    Greet       GreetCmd       `help:"Print a greeting" cmd:"""`
+    Config      ConfigCmdGroup `cmd:"" help:"Manage configuration"`
+    Greet       GreetCmd       `cmd:"" help:"Print a greeting"`
+    Demo        DemoCmd        `cmd:"" help:"Demo required flag prompting"`
 }
 ```
 
 ## Subcommands
 
-Nested subcommands are supported at any depth. A default subcommand
-can be set with `cli.WithDefaultCmd("name")`.
-
-## Combined short flags
-
-`-abc` expands to `-a -b -c`. Non-bool flags consume the remaining
-characters: `-nAlice` sets the `-n` flag to `"Alice"`.
-
-## Slice accumulation
-
-Repeated flags accumulate into `[]string` fields:
-
-```
---tag a --tag b -t c  →  Tags=["a", "b", "c"]
-```
-
-## Env vars
-
-Auto-derived from flag names with the configured prefix:
-`--core-timeout` with prefix `MIN_` becomes `MIN_CORE_TIMEOUT`.
-
-## Config file
-
-JSON file loaded before parsing. Path resolved in order:
-1. `--config-file` CLI flag
-2. `$APPNAME_CONFIG_FILE` env var
-3. `appname.json` in current directory
-4. XDG config directory
+Nested subcommands supported at any depth. Default subcommand via
+`cli.WithDefaultCmd("name")`. Root executable by adding `Run()` to `Cmd`.
 
 ## Interactive prompting
 
-When a required flag is missing on a terminal, the library prompts
-interactively. Skip with `-y` / `--yes`.
+Required flags (`required:""`) prompt interactively on a terminal, like
+PowerShell's `[Parameter(Mandatory=$true)]`. Skip with `-y` / `--yes`.
 
-## Errors
+```
+$ min demo
+Your name (--name):
+```
 
-All parse errors show the relevant help first, then the specific
-problem. No "did you mean?" suggestions — just help + error.
+Piped stdin or CI skips prompting automatically — shows help + error instead.
+
+## Other features
+
+- **Combined short flags** — `-abc` = `-a -b -c`, `-nVal` sets value
+- **Slice accumulation** — `--tag a --tag b` → `Tags=["a","b"]`
+- **Env vars** — auto-derived from flag names with prefix
+- **Global flags** — shared flags on `Cmd`, single-use flags on subcommands
+- **Built-in flags** — `-y`/`--yes`, `--config-file`, `-h`/`--help`
 
 ## Structure
 
 ```
 main.go          — entry point: calls cmd.Execute()
-cli/cli.go       — generic parser, zero dependencies, ~640 lines
+cli/cli.go       — generic parser, zero dependencies, ~670 lines
 cli/cli_test.go  — parser unit tests
 cmd/cmd.go       — Cmd struct, Execute(), config schema helpers
 cmd/greet.go     — GreetCmd
 cmd/config.go    — Config command group
+cmd/demo.go      — DemoCmd
 cmd/cmd_test.go  — command unit tests
 main_test.go     — integration tests
 ```

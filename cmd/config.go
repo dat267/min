@@ -9,10 +9,10 @@ import (
 )
 
 type ConfigCmdGroup struct {
-	Init ConfigInitCmd `help:"Generate a default configuration profile template file" cmd:""`
-	Path ConfigPathCmd `help:"Show the active configuration file path" cmd:""`
-	Show ConfigShowCmd `help:"Print the active configuration values" cmd:""`
-	Edit ConfigEditCmd `help:"Open the active configuration file in an editor" cmd:""`
+	Init ConfigInitCmd `cmd:"" help:"Generate a default configuration profile template file"`
+	Path ConfigPathCmd `cmd:"" help:"Show the active configuration file path"`
+	Show ConfigShowCmd `cmd:"" help:"Print the active configuration values"`
+	Edit ConfigEditCmd `cmd:"" help:"Open the active configuration file in an editor"`
 }
 
 type ConfigInitCmd struct {

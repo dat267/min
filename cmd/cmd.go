@@ -17,15 +17,14 @@ const AppDescription = "Internal workflows and troubleshooting utility"
 type ConfigPath string
 
 type Cmd struct {
-	Yes         bool            `help:"Skip interactive prompts for required parameters" short:"y"`
-	ConfigFile  string          `help:"Path to config file" placeholder:"PATH"`
 	AdminToken  string          `help:"Admin token" json:"admin-token"`
 	CoreTimeout string          `help:"Core timeout" default:"10s" json:"core-timeout"`
 	CoreRetries int             `help:"Core retries" default:"3" json:"core-retries"`
 	Debug       bool            `help:"Enable debug mode" json:"debug"`
 	DryRun      bool            `help:"Enable dry run mode" json:"dry-run"`
-	Config      ConfigCmdGroup  `help:"Manage application configuration" cmd:""`
-	Greet       GreetCmd        `help:"Print a personalized greeting message" cmd:""`
+	Config      ConfigCmdGroup  `cmd:"" help:"Manage application configuration"`
+	Greet       GreetCmd        `cmd:"" help:"Print a personalized greeting message"`
+	Demo  DemoCmd  `cmd:"" help:"Demonstrate interactive prompting for required flags"`
 }
 
 func (c *Cmd) ConfigFields() map[string]any {
@@ -108,14 +107,6 @@ func resolveAppName() string {
 }
 
 func resolveConfigPath(appName string) string {
-	for i, arg := range os.Args {
-		if arg == "--config-file" && i+1 < len(os.Args) {
-			return os.Args[i+1]
-		}
-		if after, found := strings.CutPrefix(arg, "--config-file="); found {
-			return after
-		}
-	}
 	envKey := strings.ToUpper(appName) + "_CONFIG_FILE"
 	if cf := os.Getenv(envKey); cf != "" {
 		return cf
