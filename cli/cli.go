@@ -67,6 +67,8 @@ type App struct {
 	hasYes    bool
 }
 
+func (a *App) ConfigPath() string { return a.cfg }
+
 func WithName(s string) Option       { return func(a *App) { a.name = s } }
 func WithDesc(s string) Option        { return func(a *App) { a.desc = s } }
 func WithCfg(s string) Option         { return func(a *App) { a.cfg = s } }
@@ -545,6 +547,16 @@ foundSub:
 		if len(missing) > 0 {
 			a.help(cur)
 			return fmt.Errorf("required: %s", strings.Join(missing, ", "))
+		}
+	}
+
+	if cf := a.root.FieldByName("ConfigPath"); cf.IsValid() && cf.Kind() == reflect.String {
+		cf.SetString(a.cfg)
+		// Also update the binding so Run() injection gets the live path
+		for t := range a.binds {
+			if t.Kind() == reflect.String && t.Name() == "ConfigPath" {
+				a.binds[t] = cf
+			}
 		}
 	}
 

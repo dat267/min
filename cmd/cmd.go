@@ -17,6 +17,7 @@ const AppDescription = "Internal workflows and troubleshooting utility"
 type ConfigPath string
 
 type Cmd struct {
+	ConfigPath  ConfigPath      `json:"-"`
 	AdminToken  string          `help:"Admin token" json:"admin-token"`
 	CoreTimeout string          `help:"Core timeout" default:"10s" json:"core-timeout"`
 	CoreRetries int             `help:"Core retries" default:"3" json:"core-retries"`
@@ -77,7 +78,7 @@ func Execute() {
 	appName := resolveAppName()
 	configPath := resolveConfigPath(appName)
 
-	appCmd := &Cmd{}
+	appCmd := &Cmd{ConfigPath: ConfigPath(configPath)}
 	a := cli.New(appCmd,
 		cli.WithName(appName),
 		cli.WithDesc(AppDescription),
