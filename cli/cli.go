@@ -19,7 +19,6 @@ type Tag struct {
 	Arg     bool
 	Cmd     bool
 	Req     bool
-	Place   string
 }
 
 func parseTag(ft reflect.StructField) Tag {
@@ -31,7 +30,6 @@ func parseTag(ft reflect.StructField) Tag {
 	t.Arg = has("arg")
 	t.Cmd = has("cmd")
 	t.Req = has("required")
-	t.Place = ft.Tag.Get("placeholder")
 	return t
 }
 
@@ -663,11 +661,7 @@ func (a *App) help(cur *cmd) {
 			b += fmt.Sprintf("    --%s", f.name)
 		}
 		if f.val.Kind() != reflect.Bool {
-			p := f.tag.Place
-			if p == "" {
-				p = strings.ToUpper(f.name)
-			}
-			b += fmt.Sprintf(" <%s>", p)
+			b += fmt.Sprintf(" <%s>", strings.ToUpper(f.name))
 		}
 		pad := 30
 		if len(b) < pad {
