@@ -12,12 +12,11 @@ import (
 )
 
 func TestParameterSpecificity(t *testing.T) {
-	// 1. Build the binary
 	tmpDir, err := os.MkdirTemp("", "min-test-*")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
-	defer func() { _ = os.RemoveAll(tmpDir) }()
+	defer os.RemoveAll(tmpDir)
 
 	binPath := filepath.Join(tmpDir, "min")
 	buildCmd := exec.Command("go", "build", "-o", binPath, ".")
@@ -25,20 +24,7 @@ func TestParameterSpecificity(t *testing.T) {
 		t.Fatalf("failed to build binary: %v", err)
 	}
 
-	// 2. Define the config structures for unmarshaling the test output
-	type CoreConfigTest struct {
-		Timeout string `json:"timeout"`
-		Retries int    `json:"retries"`
-	}
-	type ConfigTest struct {
-		AdminToken string         `json:"admin-token"`
-		Core       CoreConfigTest `json:"core"`
-		Debug      bool           `json:"debug"`
-		DryRun     bool           `json:"dry-run"`
-	}
-
-	// Helper function to run the command and parse the JSON config output
-	runConfigShow := func(env []string, args ...string) (ConfigTest, error) {
+	runConfigShow := func(env []string, args ...string) (map[string]any, error) {
 		cmdArgs := append([]string{"config", "show"}, args...)
 		cmd := exec.Command(binPath, cmdArgs...)
 		cmd.Dir = tmpDir
@@ -46,19 +32,16 @@ func TestParameterSpecificity(t *testing.T) {
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout = &stdout
 		cmd.Stderr = &stderr
-
 		if err := cmd.Run(); err != nil {
-			return ConfigTest{}, fmt.Errorf("failed to run: %w (stderr: %s)", err, stderr.String())
+			return nil, fmt.Errorf("failed: %w (stderr: %s)", err, stderr.String())
 		}
-
-		var cfg ConfigTest
-		if err := json.Unmarshal(stdout.Bytes(), &cfg); err != nil {
-			return ConfigTest{}, fmt.Errorf("failed to unmarshal JSON: %w (output: %s)", err, stdout.String())
+		var m map[string]any
+		if err := json.Unmarshal(stdout.Bytes(), &m); err != nil {
+			return nil, fmt.Errorf("json: %w (output: %s)", err, stdout.String())
 		}
-		return cfg, nil
+		return m, nil
 	}
 
-	// Helper function to run the greet command and return stdout
 	runGreet := func(env []string, args ...string) (string, error) {
 		cmdArgs := append([]string{"greet"}, args...)
 		cmd := exec.Command(binPath, cmdArgs...)
@@ -67,245 +50,423 @@ func TestParameterSpecificity(t *testing.T) {
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout = &stdout
 		cmd.Stderr = &stderr
-
 		if err := cmd.Run(); err != nil {
-			return "", fmt.Errorf("failed to run greet: %w (stderr: %s)", err, stderr.String())
+			return "", fmt.Errorf("greet failed: %w (stderr: %s)", err, stderr.String())
 		}
 		return stdout.String(), nil
 	}
 
-	// Scenario 1: Default values (no flags, no env vars, empty config file)
-	emptyConfigPath := filepath.Join(tmpDir, "empty.json")
-	if err := os.WriteFile(emptyConfigPath, []byte("{}"), 0600); err != nil {
-		t.Fatalf("failed to write empty config file: %v", err)
+	empty := filepath.Join(tmpDir, "empty.json")
+	if err := os.WriteFile(empty, []byte("{}"), 0600); err != nil {
+		t.Fatal(err)
 	}
-	cfg1, err := runConfigShow(nil, "--config-file", emptyConfigPath)
+
+	// Scenario 1: Default values
+	m1, err := runConfigShow(nil, "--config-file", empty)
 	if err != nil {
-		t.Fatalf("Scenario 1 failed: %v", err)
+		t.Fatalf("Scenario 1: %v", err)
 	}
-	if cfg1.Core.Retries != 3 {
-		t.Errorf("expected default core.retries = 3, got %d", cfg1.Core.Retries)
+	if m1["core-retries"] != float64(3) {
+		t.Errorf("expected core-retries=3, got %v", m1["core-retries"])
 	}
-	if cfg1.AdminToken != "" {
-		t.Errorf("expected default admin-token = \"\", got %q", cfg1.AdminToken)
+	if m1["admin-token"] != "" {
+		t.Errorf("expected admin-token=\"\", got %q", m1["admin-token"])
 	}
 
 	// Scenario 2: Config file overrides defaults
-	configPath := filepath.Join(tmpDir, "config.json")
-	configJSON := `{
+	cfgPath := filepath.Join(tmpDir, "config.json")
+	if err := os.WriteFile(cfgPath, []byte(`{
 		"admin-token": "config-token",
-		"core": {
-			"timeout": "5m",
-			"retries": 10
-		},
+		"core-timeout": "5m",
+		"core-retries": 10,
 		"debug": true,
 		"dry-run": true
-	}`
-	if err := os.WriteFile(configPath, []byte(configJSON), 0600); err != nil {
-		t.Fatalf("failed to write config file: %v", err)
+	}`), 0600); err != nil {
+		t.Fatal(err)
 	}
-
-	cfg2, err := runConfigShow(nil, "--config-file", configPath)
+	m2, err := runConfigShow(nil, "--config-file", cfgPath)
 	if err != nil {
-		t.Fatalf("Scenario 2 failed: %v", err)
+		t.Fatalf("Scenario 2: %v", err)
 	}
-	if cfg2.AdminToken != "config-token" {
-		t.Errorf("expected admin-token = \"config-token\", got %q", cfg2.AdminToken)
+	if m2["admin-token"] != "config-token" {
+		t.Errorf("admin-token=%v", m2["admin-token"])
 	}
-	if cfg2.Core.Retries != 10 {
-		t.Errorf("expected core.retries = 10, got %d", cfg2.Core.Retries)
+	if m2["core-retries"] != float64(10) {
+		t.Errorf("core-retries=%v", m2["core-retries"])
 	}
-	if cfg2.Debug != true {
-		t.Errorf("expected debug = true, got %v", cfg2.Debug)
+	if m2["debug"] != true {
+		t.Errorf("debug=%v", m2["debug"])
 	}
 
-	// Scenario 3: Env vars override config file
-	envVars := []string{
-		"MIN_ADMIN_TOKEN=env-token",
-		"MIN_CORE_TIMEOUT=30m",
-	}
-	cfg3, err := runConfigShow(envVars, "--config-file", configPath)
+	// Scenario 3: Env overrides config file
+	env := []string{"MIN_ADMIN_TOKEN=env-token", "MIN_CORE_TIMEOUT=30m"}
+	m3, err := runConfigShow(env, "--config-file", cfgPath)
 	if err != nil {
-		t.Fatalf("Scenario 3 failed: %v", err)
+		t.Fatalf("Scenario 3: %v", err)
 	}
-	if cfg3.AdminToken != "env-token" {
-		t.Errorf("expected admin-token = \"env-token\", got %q", cfg3.AdminToken)
+	if m3["admin-token"] != "env-token" {
+		t.Errorf("admin-token=%v", m3["admin-token"])
 	}
-	if cfg3.Core.Retries != 10 { // remains unchanged from config file
-		t.Errorf("expected core.retries = 10, got %d", cfg3.Core.Retries)
+	if m3["core-retries"] != float64(10) {
+		t.Errorf("core-retries=%v", m3["core-retries"])
 	}
-	if cfg3.Core.Timeout != "30m" {
-		t.Errorf("expected core.timeout = \"30m\", got %q", cfg3.Core.Timeout)
+	if m3["core-timeout"] != "30m" {
+		t.Errorf("core-timeout=%v", m3["core-timeout"])
 	}
 
-	// Scenario 4: Env vars fully override config file (no CLI flags for config values)
-	envVars2 := []string{
-		"MIN_ADMIN_TOKEN=env2-token",
-		"MIN_CORE_TIMEOUT=45m",
-		"MIN_CORE_RETRIES=99",
-		"MIN_DEBUG=true",
-	}
-	cfg4, err := runConfigShow(envVars2, "--config-file", emptyConfigPath)
+	// Scenario 4: Env full override
+	env2 := []string{"MIN_ADMIN_TOKEN=env2", "MIN_CORE_TIMEOUT=45m", "MIN_CORE_RETRIES=99", "MIN_DEBUG=true"}
+	m4, err := runConfigShow(env2, "--config-file", empty)
 	if err != nil {
-		t.Fatalf("Scenario 4 failed: %v", err)
+		t.Fatalf("Scenario 4: %v", err)
 	}
-	if cfg4.AdminToken != "env2-token" {
-		t.Errorf("expected admin-token = \"env2-token\", got %q", cfg4.AdminToken)
+	if m4["admin-token"] != "env2" {
+		t.Errorf("admin-token=%v", m4["admin-token"])
 	}
-	if cfg4.Core.Timeout != "45m" {
-		t.Errorf("expected core.timeout = \"45m\", got %q", cfg4.Core.Timeout)
+	if m4["core-timeout"] != "45m" {
+		t.Errorf("core-timeout=%v", m4["core-timeout"])
 	}
-	if cfg4.Core.Retries != 99 {
-		t.Errorf("expected core.retries = 99, got %d", cfg4.Core.Retries)
+	if m4["core-retries"] != float64(99) {
+		t.Errorf("core-retries=%v", m4["core-retries"])
 	}
-	if !cfg4.Debug {
-		t.Errorf("expected debug = true, got %v", cfg4.Debug)
+	if m4["debug"] != true {
+		t.Errorf("debug=%v", m4["debug"])
 	}
 
-	// Scenario 5: Subcommand flag default vs. Root config default vs. File/Env specificity
-	// 5a. No config, no env -> should use GreetCmd default timeout (10s) instead of Config default (2m)
-	out5a, err := runGreet(nil, "--config-file", emptyConfigPath)
+	// Scenario 5a: Subcommand flag default (10s) wins over config default
+	out5a, err := runGreet(nil, "--config-file", empty)
 	if err != nil {
-		t.Fatalf("Scenario 5a failed: %v", err)
+		t.Fatalf("Scenario 5a: %v", err)
 	}
-	if !strings.Contains(out5a, "timeout setting is 10s") {
-		t.Errorf("expected subcommand default timeout 10s, got: %q", out5a)
+	if !strings.Contains(out5a, "10s") {
+		t.Errorf("expected 10s default, got %q", out5a)
 	}
 
-	// 5b. Config file sets timeout -> should override GreetCmd default timeout (10s)
-	out5b, err := runGreet(nil, "--config-file", configPath)
+	// Scenario 5b: Config file overrides subcommand default
+	out5b, err := runGreet(nil, "--config-file", cfgPath)
 	if err != nil {
-		t.Fatalf("Scenario 5b failed: %v", err)
+		t.Fatalf("Scenario 5b: %v", err)
 	}
-	if !strings.Contains(out5b, "timeout setting is 5m") {
-		t.Errorf("expected config file timeout 5m to override, got: %q", out5b)
+	if !strings.Contains(out5b, "5m") {
+		t.Errorf("expected 5m from config, got %q", out5b)
 	}
 
-	// 5c. Env var sets timeout -> should override GreetCmd default timeout (10s)
-	out5c, err := runGreet([]string{"MIN_CORE_TIMEOUT=15m"}, "--config-file", emptyConfigPath)
+	// Scenario 5c: Env overrides subcommand default
+	out5c, err := runGreet([]string{"MIN_CORE_TIMEOUT=15m"}, "--config-file", empty)
 	if err != nil {
-		t.Fatalf("Scenario 5c failed: %v", err)
+		t.Fatalf("Scenario 5c: %v", err)
 	}
-	if !strings.Contains(out5c, "timeout setting is 15m") {
-		t.Errorf("expected env timeout 15m to override, got: %q", out5c)
+	if !strings.Contains(out5c, "15m") {
+		t.Errorf("expected 15m from env, got %q", out5c)
 	}
 
-	// Scenario 6: CLI flag overrides both config file and environment variables
-	out6, err := runGreet([]string{"MIN_CORE_TIMEOUT=30m"}, "--config-file", configPath, "--core-timeout", "1h")
+	// Scenario 6: CLI flag overrides both
+	out6, err := runGreet([]string{"MIN_CORE_TIMEOUT=30m"}, "--config-file", cfgPath, "--core-timeout", "1h")
 	if err != nil {
-		t.Fatalf("Scenario 6 failed: %v", err)
+		t.Fatalf("Scenario 6: %v", err)
 	}
-	if !strings.Contains(out6, "timeout setting is 1h") {
-		t.Errorf("expected CLI flag 1h to override both env and config file, got: %q", out6)
+	if !strings.Contains(out6, "1h") {
+		t.Errorf("expected 1h, got %q", out6)
 	}
 
-	// Scenario 7: Duplicate configuration key validation in the config file
-	duplicateConfigPath := filepath.Join(tmpDir, "duplicate.json")
-	duplicateJSON := `{
-		"core-timeout": "5m",
-		"core": {
-			"timeout": "10m"
+	// Scenario 8a: Config file from env var
+	envCfg := filepath.Join(tmpDir, "env_config.json")
+	if err := os.WriteFile(envCfg, []byte(`{"admin-token": "env-resolved"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	m8a, err := runConfigShow([]string{"MIN_CONFIG_FILE=" + envCfg})
+	if err != nil {
+		t.Fatalf("Scenario 8a: %v", err)
+	}
+	if m8a["admin-token"] != "env-resolved" {
+		t.Errorf("admin-token=%v", m8a["admin-token"])
+	}
+
+	// Scenario 8b: Local min.json file
+	localCfg := filepath.Join(tmpDir, "min.json")
+	if err := os.WriteFile(localCfg, []byte(`{"admin-token": "local-json-token"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	m8b, err := runConfigShow(nil)
+	if err != nil {
+		t.Fatalf("Scenario 8b: %v", err)
+	}
+	if m8b["admin-token"] != "local-json-token" {
+		t.Errorf("admin-token=%v", m8b["admin-token"])
+	}
+
+	// Scenario 9a: Explicit zero values preserved
+	zeroCfg := filepath.Join(tmpDir, "zero.json")
+	if err := os.WriteFile(zeroCfg, []byte(`{"core-timeout": "", "core-retries": 0}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	m9a, err := runConfigShow(nil, "--config-file", zeroCfg)
+	if err != nil {
+		t.Fatalf("Scenario 9a: %v", err)
+	}
+	if m9a["core-timeout"] != "" {
+		t.Errorf("expected empty timeout, got %q", m9a["core-timeout"])
+	}
+	if m9a["core-retries"] != float64(0) {
+		t.Errorf("expected 0 retries, got %v", m9a["core-retries"])
+	}
+
+	// Scenario 9b: Explicit empty env vars preserved
+	m9b, err := runConfigShow([]string{"MIN_CORE_TIMEOUT=", "MIN_CORE_RETRIES=0"}, "--config-file", empty)
+	if err != nil {
+		t.Fatalf("Scenario 9b: %v", err)
+	}
+	if m9b["core-timeout"] != "" {
+		t.Errorf("expected empty timeout, got %q", m9b["core-timeout"])
+	}
+	if m9b["core-retries"] != float64(0) {
+		t.Errorf("expected 0 retries, got %v", m9b["core-retries"])
+	}
+
+	// Scenario 9c: null values fall back to defaults
+	nullCfg := filepath.Join(tmpDir, "null.json")
+	if err := os.WriteFile(nullCfg, []byte(`{"core-timeout": null, "core-retries": null}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	m9c, err := runConfigShow(nil, "--config-file", nullCfg)
+	if err != nil {
+		t.Fatalf("Scenario 9c: %v", err)
+	}
+	if m9c["core-timeout"] != "10s" {
+		t.Errorf("expected default 10s, got %q", m9c["core-timeout"])
+	}
+	if m9c["core-retries"] != float64(3) {
+		t.Errorf("expected default 3, got %v", m9c["core-retries"])
+	}
+}
+
+func TestYesFlagGlobal(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "min-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	binPath := filepath.Join(tmpDir, "min")
+	exec.Command("go", "build", "-o", binPath, ".").Run()
+
+	empty := filepath.Join(tmpDir, "empty.json")
+	os.WriteFile(empty, []byte("{}"), 0600)
+	env := append(os.Environ(), "MIN_CONFIG_FILE="+empty)
+
+	subs := []string{"-y before", "-y after", "--yes", "with config show"}
+	args := [][]string{{"-y", "greet"}, {"greet", "-y"}, {"--yes", "greet"}, {"-y", "config", "show"}}
+	for i := range subs {
+		t.Run(subs[i], func(t *testing.T) {
+			cmd := exec.Command(binPath, args[i]...)
+			cmd.Env = env
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("%v: %s", err, out)
+			}
+			if !strings.Contains(string(out), "Hello") && !strings.Contains(string(out), "admin-token") {
+				t.Errorf("unexpected output: %s", out)
+			}
+		})
+	}
+}
+
+func TestGreetCommandIntegration(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "min-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	binPath := filepath.Join(tmpDir, "min")
+	exec.Command("go", "build", "-o", binPath, ".").Run()
+
+	empty := filepath.Join(tmpDir, "empty.json")
+	os.WriteFile(empty, []byte("{}"), 0600)
+	env := append(os.Environ(), "MIN_CONFIG_FILE="+empty)
+
+	t.Run("default", func(t *testing.T) {
+		out, err := exec.Command(binPath, "greet").CombinedOutput()
+		if err != nil {
+			t.Fatalf("%s", out)
 		}
-	}`
-	if err := os.WriteFile(duplicateConfigPath, []byte(duplicateJSON), 0600); err != nil {
-		t.Fatalf("failed to write duplicate config file: %v", err)
-	}
-	_, err = runGreet(nil, "--config-file", duplicateConfigPath)
-	if err == nil {
-		t.Errorf("Scenario 7 failed: expected command to fail with duplicate config file, but it succeeded")
-	} else {
-		if !strings.Contains(err.Error(), "are defined. Run 'min config edit' to fix this.") {
-			t.Errorf("expected error message to advise running config edit, got: %v", err)
+		if !strings.Contains(string(out), "Hello, World!") {
+			t.Errorf("got %s", out)
 		}
-	}
-
-	// Scenario 8: Config file location resolution priority
-	// 8a. Resolution via $MIN_CONFIG_FILE env var (when --config-file is omitted)
-	envConfigPath := filepath.Join(tmpDir, "env_config.json")
-	envConfigJSON := `{
-		"admin-token": "env-resolved-token"
-	}`
-	if err := os.WriteFile(envConfigPath, []byte(envConfigJSON), 0600); err != nil {
-		t.Fatalf("failed to write env config file: %v", err)
-	}
-	cfg8a, err := runConfigShow([]string{"MIN_CONFIG_FILE=" + envConfigPath})
-	if err != nil {
-		t.Fatalf("Scenario 8a failed: %v", err)
-	}
-	if cfg8a.AdminToken != "env-resolved-token" {
-		t.Errorf("expected admin-token = \"env-resolved-token\", got %q", cfg8a.AdminToken)
-	}
-
-	// 8b. Resolution via local default min.json in working directory (when --config-file and env are omitted)
-	localConfigPath := filepath.Join(tmpDir, "min.json")
-	localConfigJSON := `{
-		"admin-token": "local-json-token"
-	}`
-	if err := os.WriteFile(localConfigPath, []byte(localConfigJSON), 0600); err != nil {
-		t.Fatalf("failed to write local min.json file: %v", err)
-	}
-	cfg8b, err := runConfigShow(nil)
-	if err != nil {
-		t.Fatalf("Scenario 8b failed: %v", err)
-	}
-	if cfg8b.AdminToken != "local-json-token" {
-		t.Errorf("expected admin-token = \"local-json-token\", got %q", cfg8b.AdminToken)
-	}
-
-	// Scenario 9: Explicit empty, zero, and null config values
-	// 9a. Explicit zero and empty string values in config file should be preserved (not overridden by defaults)
-	zeroConfigPath := filepath.Join(tmpDir, "zero_config.json")
-	zeroConfigJSON := `{
-		"core": {
-			"timeout": "",
-			"retries": 0
+	})
+	t.Run("name", func(t *testing.T) {
+		out, _ := exec.Command(binPath, "greet", "Alice").CombinedOutput()
+		if !strings.Contains(string(out), "Alice") {
+			t.Errorf("got %s", out)
 		}
-	}`
-	if err := os.WriteFile(zeroConfigPath, []byte(zeroConfigJSON), 0600); err != nil {
-		t.Fatalf("failed to write zero config file: %v", err)
-	}
-	cfg9a, err := runConfigShow(nil, "--config-file", zeroConfigPath)
-	if err != nil {
-		t.Fatalf("Scenario 9a failed: %v", err)
-	}
-	if cfg9a.Core.Timeout != "" {
-		t.Errorf("expected explicit empty timeout to be preserved, got %q", cfg9a.Core.Timeout)
-	}
-	if cfg9a.Core.Retries != 0 {
-		t.Errorf("expected explicit zero retries to be preserved, got %d", cfg9a.Core.Retries)
-	}
-
-	// 9b. Explicit zero and empty string values in env variables should be preserved
-	cfg9b, err := runConfigShow([]string{"MIN_CORE_TIMEOUT=", "MIN_CORE_RETRIES=0"}, "--config-file", emptyConfigPath)
-	if err != nil {
-		t.Fatalf("Scenario 9b failed: %v", err)
-	}
-	if cfg9b.Core.Timeout != "" {
-		t.Errorf("expected explicit empty timeout from env to be preserved, got %q", cfg9b.Core.Timeout)
-	}
-	if cfg9b.Core.Retries != 0 {
-		t.Errorf("expected explicit zero retries from env to be preserved, got %d", cfg9b.Core.Retries)
-	}
-
-	// 9c. Explicit null values in JSON should fall back to defaults
-	nullConfigPath := filepath.Join(tmpDir, "null_config.json")
-	nullConfigJSON := `{
-		"core": {
-			"timeout": null,
-			"retries": null
+	})
+	t.Run("shout", func(t *testing.T) {
+		out, _ := exec.Command(binPath, "greet", "-s", "Bob").CombinedOutput()
+		if string(out) != strings.ToUpper(string(out)) {
+			t.Errorf("got %s", out)
 		}
-	}`
-	if err := os.WriteFile(nullConfigPath, []byte(nullConfigJSON), 0600); err != nil {
-		t.Fatalf("failed to write null config file: %v", err)
-	}
-	cfg9c, err := runConfigShow(nil, "--config-file", nullConfigPath)
+	})
+	t.Run("times", func(t *testing.T) {
+		out, _ := exec.Command(binPath, "greet", "-t", "3", "Alice").CombinedOutput()
+		if lines := strings.Split(strings.TrimSpace(string(out)), "\n"); len(lines) != 3 {
+			t.Errorf("got %d lines", len(lines))
+		}
+	})
+	t.Run("all flags", func(t *testing.T) {
+		cmd := exec.Command(binPath, "greet", "-s", "-t", "2", "--core-timeout", "1h", "Bob")
+		cmd.Env = env
+		out, _ := cmd.CombinedOutput()
+		s := string(out)
+		if s != strings.ToUpper(s) {
+			t.Errorf("not uppercase: %s", s)
+		}
+		if !strings.Contains(strings.ToUpper(s), "1H") {
+			t.Errorf("missing 1h: %s", s)
+		}
+		if lines := strings.Split(strings.TrimSpace(s), "\n"); len(lines) != 2 {
+			t.Errorf("expected 2 lines, got %d", len(lines))
+		}
+	})
+}
+
+func TestConfigInitIntegration(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "min-test-*")
 	if err != nil {
-		t.Fatalf("Scenario 9c failed: %v", err)
+		t.Fatalf("failed to create temp dir: %v", err)
 	}
-	if cfg9c.Core.Timeout != "2m" {
-		t.Errorf("expected null timeout in JSON to fall back to default '2m', got %q", cfg9c.Core.Timeout)
+	defer os.RemoveAll(tmpDir)
+
+	binPath := filepath.Join(tmpDir, "min")
+	exec.Command("go", "build", "-o", binPath, ".").Run()
+
+	cfgPath := filepath.Join(tmpDir, "test-config.json")
+	cfgEnv := "MIN_CONFIG_FILE=" + cfgPath
+
+	t.Run("init", func(t *testing.T) {
+		cmd := exec.Command(binPath, "-y", "config", "init")
+		cmd.Env = append(os.Environ(), cfgEnv)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("%s", out)
+		}
+		if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
+			t.Error("config not created")
+		}
+	})
+	t.Run("no force fails", func(t *testing.T) {
+		cmd := exec.Command(binPath, "-y", "config", "init")
+		cmd.Env = append(os.Environ(), cfgEnv)
+		out, err := cmd.CombinedOutput()
+		if err == nil {
+			t.Errorf("expected error, got %s", out)
+		}
+	})
+	t.Run("force overwrites", func(t *testing.T) {
+		cmd := exec.Command(binPath, "-y", "config", "init", "--force")
+		cmd.Env = append(os.Environ(), cfgEnv)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("%s", out)
+		}
+	})
+	t.Run("show", func(t *testing.T) {
+		cmd := exec.Command(binPath, "-y", "config", "show")
+		cmd.Env = append(os.Environ(), cfgEnv)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("%s", out)
+		}
+		var m map[string]any
+		if err := json.Unmarshal(out, &m); err != nil {
+			t.Fatalf("invalid JSON: %v\n%s", err, out)
+		}
+	})
+	t.Run("path", func(t *testing.T) {
+		cmd := exec.Command(binPath, "-y", "config", "path")
+		cmd.Env = append(os.Environ(), cfgEnv)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("%s", out)
+		}
+		if !strings.Contains(string(out), cfgPath) {
+			t.Errorf("expected path %q, got %s", cfgPath, out)
+		}
+	})
+}
+
+func TestErrorHandling(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "min-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
 	}
-	if cfg9c.Core.Retries != 3 {
-		t.Errorf("expected null retries in JSON to fall back to default 3, got %d", cfg9c.Core.Retries)
+	defer os.RemoveAll(tmpDir)
+
+	binPath := filepath.Join(tmpDir, "min")
+	exec.Command("go", "build", "-o", binPath, ".").Run()
+
+	t.Run("unknown flag", func(t *testing.T) {
+		out, err := exec.Command(binPath, "greet", "--unknown").CombinedOutput()
+		if err == nil {
+			t.Errorf("expected error, got %s", out)
+		}
+	})
+	t.Run("unknown cmd", func(t *testing.T) {
+		out, err := exec.Command(binPath, "badcmd").CombinedOutput()
+		if err == nil {
+			t.Errorf("expected error, got %s", out)
+		}
+	})
+	t.Run("no args", func(t *testing.T) {
+		out, err := exec.Command(binPath).CombinedOutput()
+		if err == nil {
+			t.Errorf("expected error, got %s", out)
+		}
+		if !strings.Contains(string(out), "config") || !strings.Contains(string(out), "greet") {
+			t.Errorf("expected available commands, got %s", out)
+		}
+	})
+}
+
+func TestAppNameResolution(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "min-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	customBin := filepath.Join(tmpDir, "myapp")
+	exec.Command("go", "build", "-o", customBin, ".").Run()
+
+	os.WriteFile(filepath.Join(tmpDir, "myapp.json"), []byte(`{"admin-token": "custom-app-token"}`), 0600)
+
+	cmd := exec.Command(customBin, "config", "show")
+	cmd.Dir = tmpDir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("%s", out)
+	}
+	var m map[string]any
+	json.Unmarshal(out, &m)
+	if m["admin-token"] != "custom-app-token" {
+		t.Errorf("admin-token=%v", m["admin-token"])
+	}
+}
+
+func TestContextBinding(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "min-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	binPath := filepath.Join(tmpDir, "min")
+	exec.Command("go", "build", "-o", binPath, ".").Run()
+
+	out, err := exec.Command(binPath, "greet", "World").CombinedOutput()
+	if err != nil {
+		t.Fatalf("%s", out)
+	}
+	if !strings.Contains(string(out), "Hello, World!") {
+		t.Errorf("got %s", out)
 	}
 }

@@ -1,106 +1,129 @@
-# min CLI Framework
+# min
 
-`min` is a lightweight, declarative, and type-safe CLI boilerplate framework built in Go using `github.com/alecthomas/kong`. 
+Zero-dependency CLI framework with struct-tag parsing, env/config resolution, and interactive prompting.
 
-It is designed to be completely reusable, allowing developers to add new subcommands or configuration properties by editing only Go structs.
+```
+Usage: min <command> [flags]
 
-## Features
-- **Strict Override Specificity**: `CLI flag > Env Var > Config File > Subcommand Default > Root Default` resolved universally.
-- **Root Command Cleanliness**: Config options are only exposed on subcommands that explicitly define them, preventing global option pollution on the root `--help` output.
-- **Collision-Free Path Mapping**: Subcommand flags map strictly to nested global configuration properties based on their Go structure paths, preventing naming collisions.
-- **Vanilla Go Type Safety**: Leverages Go's native type system without requiring custom parser wrappers or complex serialization unmarshalers.
-- **Automatic Environment Variable Documentation**: Derived environment variables are documented dynamically on command-line `--help` screens.
+Commands:
+  config    Manage application configuration
+  greet     Print a personalized greeting message
 
----
+Flags:
+  -h, --help                  Print help
+  -y, --yes                   Skip interactive prompts [env: MIN_YES]
+      --config-file <PATH>    Path to config file [env: MIN_CONFIG_FILE]
+      --admin-token <ADMIN-TOKEN>  Admin token [env: MIN_ADMIN_TOKEN]
+      --core-timeout <CORE-TIMEOUT>  Core timeout [default: 10s] [env: MIN_CORE_TIMEOUT]
+      --core-retries <CORE-RETRIES>  Core retries [default: 3] [env: MIN_CORE_RETRIES]
+      --debug                 Enable debug mode [env: MIN_DEBUG]
+      --dry-run               Enable dry run mode [env: MIN_DRY_RUN]
+```
 
-## Developer Guide: Adding & Configuring Subcommands
+## Resolution order
 
-This section explains how to add new subcommands, configure flags, and bind options to the global configuration.
+```
+CLI args  >  env vars  >  config file  >  struct defaults
+```
 
-### 1. How to Add a New Subcommand
+Every source overrides the next. Config file supports both nested
+(`{"core":{"timeout":"5m"}}`) and flat (`{"core-timeout":"5m"}`) keys.
 
-Adding a subcommand involves three steps:
+## Struct tags
 
-#### Step 1: Define the Command Struct
-Create a new struct representing the command. Any fields defined inside this struct will automatically become command-line flags or positional arguments.
+Commands and flags are defined with `cli` struct tags:
 
 ```go
-type DiagnosticCmd struct {
-    Verbose bool `short:"v" help:"Enable verbose diagnostic output."`
+type GreetCmd struct {
+    Name  string `cli:"help=Name to greet,default=World,arg"`
+    Shout bool   `cli:"help=Convert to uppercase,short=s"`
+    Times int    `cli:"help=Repeat count,default=1,short=t"`
 }
 ```
 
-#### Step 2: Implement the `Run` Method
-Implement a `Run` method for your struct. Kong automatically injects dependencies (like the global `*Config` or `ConfigPath`) when executing the method:
+| Tag | Use |
+|-----|-----|
+| `help=text` | Help text for `--help` output |
+| `short=x` | Short flag alias (`-x`) |
+| `default=val` | Default value when none provided |
+| `required` | Fail if flag is missing |
+| `arg` | Positional argument instead of flag |
+| `cmd` | Marks a struct field as a subcommand |
+| `placeholder=X` | Placeholder name in help output |
 
-```go
-func (cmd *DiagnosticCmd) Run(cfg *Config) error {
-    if cmd.Verbose {
-        fmt.Println("Running verbose diagnostics...")
-    }
-    fmt.Printf("Admin Token: %s\n", cfg.AdminToken)
-    return nil
-}
-```
+## Subcommands
 
-#### Step 3: Register the Subcommand
-Add your new command to the root `CLI` struct inside `main.go` using the `cmd:""` tag:
+Nested subcommands are supported at any depth:
 
 ```go
 type CLI struct {
-    ConfigFile string `help:"Path to config file." placeholder:"PATH"`
-
-    Config     ConfigCmdGroup `cmd:"" help:"Manage application configuration"`
-    Greet      GreetCmd       `cmd:"" help:"Print a personalized greeting message"`
-    Diagnostic DiagnosticCmd  `cmd:"" help:"Run system diagnostic suite"` // Registered!
+    Config ConfigCmdGroup  `cli:"help=Manage configuration,cmd"`
+    Greet  GreetCmd        `cli:"help=Print a greeting,cmd"`
 }
 ```
 
----
+A default subcommand can be set with `cli.WithDefaultCmd("name")`.
 
-### 2. Kong Struct Tags & Their Effects
+## Combined short flags
 
-Kong parses command-line arguments dynamically based on struct tags. Here is a comprehensive reference of all available tags:
+`-abc` expands to `-a -b -c`. Non-bool flags consume the remaining
+characters: `-nAlice` sets the `-n` flag to `"Alice"`.
 
-| Struct Tag | Applied To | Description | Example |
-| :--- | :--- | :--- | :--- |
-| `cmd` | Struct Fields | Marks a nested struct as a subcommand (command group). | `cmd:""` |
-| `arg` | Fields | Marks the field as a positional argument instead of a flag. | `arg:""` |
-| `help` | Fields | Sets the description text printed in `--help`. | `help:"Detailed desc"` |
-| `default` | Fields | Defines the fallback default value. | `default:"10s"` |
-| `short` | Fields | Single-character short flag alias. | `short:"s"` |
-| `placeholder`| Fields | Placeholder name shown for flags expecting values. | `placeholder:"PATH"` |
-| `required` | Fields | Fails parsing if the flag/argument is omitted. | `required:""` |
-| `xor` | Fields | Mutually exclusive flag group. Only one can be set. | `xor:"output-group"` |
-| `name` | Fields | Overrides the generated CLI flag name. | `name:"json-out"` |
+## Slice accumulation
 
----
+Repeated flags accumulate into `[]string` fields:
 
-### 3. Configuration & Specificity Precedence
-
-Any option defined on a subcommand that matches a key in the global `Config` struct (matched using kebab-case paths, e.g. `CoreTimeout` mapping to `core.timeout`) automatically inherits the full configuration hierarchy.
-
-The priority order is strictly resolved as follows:
-
-```mermaid
-graph TD
-    A[1. CLI Flag Override] --> B[2. Env Var Override]
-    B --> C[3. JSON Config File]
-    C --> D[4. Subcommand Flag Default]
-    D --> E[5. Global Config Default]
+```
+--tag a --tag b -t c  →  Tags=["a", "b", "c"]
 ```
 
-#### Flag Name and Path Mapping
-The framework automatically maps subcommand options to global configuration properties:
-- If you define `CoreTimeout string` on your subcommand, it maps strictly to `core.timeout` in `Config` (env: `$MIN_CORE_TIMEOUT`).
-- Any flag name that does not match a global config field (e.g. if you define a local option `Timeout string`) remains entirely local to the subcommand and does not conflict with the global configuration.
+## Env vars
 
-#### Crucial: Field Naming Rules
-Because the framework maps subcommand flags dynamically, **the field name in your subcommand struct must reflect the Go structure path of the target global configuration property**:
-- To map to global `Config.Core.Timeout` (flat key `"core-timeout"`), the subcommand option field **must be named `CoreTimeout`** to produce the flag `--core-timeout`.
-- If you name the field `Timeout`, it will produce the flag `--timeout`, which does not match `"core-timeout"` and will act only as a local command flag without inheriting configuration or environment variable overrides.
+Environment variables are auto-derived from flag names with the configured
+prefix. `--core-timeout` with prefix `MIN_` becomes `MIN_CORE_TIMEOUT`.
 
-#### Duplicate Key Detection
-To ensure configuration integrity, the framework enforces unique leaf-level paths within the JSON configuration file:
-- If the configuration file defines the same setting in multiple forms (e.g. including flat `"core-timeout": "5m"` at the root level and nested `"core": {"timeout": "10m"}`), the parser will fail immediately with a validation error:
-  `error: duplicate config keys in /home/dat/.config/min/min.json: both "core-timeout" and "core.timeout" are defined. Run 'min config edit' to fix this.`
+## Config file
+
+JSON file loaded before parsing. Supports both formats:
+
+```json
+{"core-timeout": "5m", "core-retries": 3}
+```
+
+```json
+{"core": {"timeout": "5m", "retries": 3}}
+```
+
+Config file path resolved in order:
+1. `--config-file` CLI flag
+2. `$APPNAME_CONFIG_FILE` env var
+3. `appname.json` in current directory
+4. XDG config directory
+
+## Interactive prompting
+
+When a required flag is missing on a terminal, the library prompts
+interactively for a value. Skip with `-y` / `--yes`.
+
+## "Did you mean?" suggestions
+
+Unknown flag names get Levenshtein-based suggestions:
+
+```
+error: unknown flag "--verose", did you mean --verbose?
+```
+
+## Library
+
+The entire CLI parser is in `cli/cli.go` — zero external dependencies.
+The application commands are in `cmd/`. `main.go` is the entry point:
+
+```go
+package main
+
+import "min/cmd"
+
+func main() {
+    cmd.Run()
+}
+```
