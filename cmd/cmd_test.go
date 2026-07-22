@@ -29,23 +29,23 @@ func captureStdout(fn func()) (string, error) {
 }
 
 func TestGreetCmdDefaults(t *testing.T) {
-	cli := &CLI{}
+	cmd := &Cmd{}
 	g := &GreetCmd{Name: "World", Times: 1}
-	output, err := captureStdout(func() { _ = g.Run(cli) })
+	output, err := captureStdout(func() { _ = g.Run(cmd) })
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(output, "Hello, World!") {
 		t.Fatalf("got %q", output)
 	}
-	if !strings.Contains(output, cli.CoreTimeout) {
+	if !strings.Contains(output, cmd.CoreTimeout) {
 		t.Fatalf("missing timeout in %q", output)
 	}
 }
 
 func TestGreetCmdCustomName(t *testing.T) {
 	g := &GreetCmd{Name: "Alice", Times: 1}
-	output, err := captureStdout(func() { _ = g.Run(&CLI{}) })
+	output, err := captureStdout(func() { _ = g.Run(&Cmd{}) })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +56,7 @@ func TestGreetCmdCustomName(t *testing.T) {
 
 func TestGreetCmdShout(t *testing.T) {
 	g := &GreetCmd{Name: "Alice", Times: 1, Shout: true}
-	output, err := captureStdout(func() { _ = g.Run(&CLI{}) })
+	output, err := captureStdout(func() { _ = g.Run(&Cmd{}) })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestGreetCmdShout(t *testing.T) {
 
 func TestGreetCmdTimes(t *testing.T) {
 	g := &GreetCmd{Name: "Alice", Times: 3}
-	output, err := captureStdout(func() { _ = g.Run(&CLI{}) })
+	output, err := captureStdout(func() { _ = g.Run(&Cmd{}) })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,9 +77,9 @@ func TestGreetCmdTimes(t *testing.T) {
 }
 
 func TestGreetCmdCoreTimeout(t *testing.T) {
-	cli := &CLI{CoreTimeout: "30m"}
+	cmd := &Cmd{CoreTimeout: "30m"}
 	g := &GreetCmd{Name: "Alice", Times: 1}
-	output, err := captureStdout(func() { _ = g.Run(cli) })
+	output, err := captureStdout(func() { _ = g.Run(cmd) })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,8 +90,8 @@ func TestGreetCmdCoreTimeout(t *testing.T) {
 
 func TestConfigInitCmdGenerate(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "cfg.json")
-	cli := &CLI{AdminToken: "tok", CoreTimeout: "5m", CoreRetries: 7}
-	if err := (&ConfigInitCmd{}).Run(ConfigPath(path), cli); err != nil {
+	cmd := &Cmd{AdminToken: "tok", CoreTimeout: "5m", CoreRetries: 7}
+	if err := (&ConfigInitCmd{}).Run(ConfigPath(path), cmd); err != nil {
 		t.Fatal(err)
 	}
 	data, _ := os.ReadFile(path)
@@ -112,15 +112,15 @@ func TestConfigInitCmdGenerate(t *testing.T) {
 
 func TestConfigInitCmdForce(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "cfg.json")
-	cli := &CLI{}
+	cmd := &Cmd{}
 	c := &ConfigInitCmd{}
-	if err := c.Run(ConfigPath(path), cli); err != nil {
+	if err := c.Run(ConfigPath(path), cmd); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.Run(ConfigPath(path), cli); err == nil {
+	if err := c.Run(ConfigPath(path), cmd); err == nil {
 		t.Fatal("expected error without --force")
 	}
-	if err := (&ConfigInitCmd{Force: true}).Run(ConfigPath(path), cli); err != nil {
+	if err := (&ConfigInitCmd{Force: true}).Run(ConfigPath(path), cmd); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -145,8 +145,8 @@ func TestConfigPathCmd(t *testing.T) {
 }
 
 func TestConfigShowCmd(t *testing.T) {
-	cli := &CLI{AdminToken: "test-token", CoreTimeout: "5m", CoreRetries: 7, Debug: true}
-	output, err := captureStdout(func() { _ = (&ConfigShowCmd{}).Run(cli) })
+	cmd := &Cmd{AdminToken: "test-token", CoreTimeout: "5m", CoreRetries: 7, Debug: true}
+	output, err := captureStdout(func() { _ = (&ConfigShowCmd{}).Run(cmd) })
 	if err != nil {
 		t.Fatal(err)
 	}

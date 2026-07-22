@@ -16,7 +16,7 @@ func TestParameterSpecificity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	binPath := filepath.Join(tmpDir, "min")
 	buildCmd := exec.Command("go", "build", "-o", binPath, ".")
@@ -245,13 +245,13 @@ func TestYesFlagGlobal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	binPath := filepath.Join(tmpDir, "min")
-	exec.Command("go", "build", "-o", binPath, ".").Run()
+	_ = exec.Command("go", "build", "-o", binPath, ".").Run()
 
 	empty := filepath.Join(tmpDir, "empty.json")
-	os.WriteFile(empty, []byte("{}"), 0600)
+_ = os.WriteFile(empty, []byte("{}"), 0600)
 	env := append(os.Environ(), "MIN_CONFIG_FILE="+empty)
 
 	subs := []string{"-y before", "-y after", "--yes", "with config show"}
@@ -276,13 +276,13 @@ func TestGreetCommandIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	binPath := filepath.Join(tmpDir, "min")
-	exec.Command("go", "build", "-o", binPath, ".").Run()
+	_ = exec.Command("go", "build", "-o", binPath, ".").Run()
 
 	empty := filepath.Join(tmpDir, "empty.json")
-	os.WriteFile(empty, []byte("{}"), 0600)
+_ = os.WriteFile(empty, []byte("{}"), 0600)
 	env := append(os.Environ(), "MIN_CONFIG_FILE="+empty)
 
 	t.Run("default", func(t *testing.T) {
@@ -334,10 +334,10 @@ func TestConfigInitIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	binPath := filepath.Join(tmpDir, "min")
-	exec.Command("go", "build", "-o", binPath, ".").Run()
+	_ = exec.Command("go", "build", "-o", binPath, ".").Run()
 
 	cfgPath := filepath.Join(tmpDir, "test-config.json")
 	cfgEnv := "MIN_CONFIG_FILE=" + cfgPath
@@ -399,10 +399,10 @@ func TestErrorHandling(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	binPath := filepath.Join(tmpDir, "min")
-	exec.Command("go", "build", "-o", binPath, ".").Run()
+	_ = exec.Command("go", "build", "-o", binPath, ".").Run()
 
 	t.Run("unknown flag", func(t *testing.T) {
 		out, err := exec.Command(binPath, "greet", "--unknown").CombinedOutput()
@@ -432,12 +432,12 @@ func TestAppNameResolution(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	customBin := filepath.Join(tmpDir, "myapp")
-	exec.Command("go", "build", "-o", customBin, ".").Run()
+	_ = exec.Command("go", "build", "-o", customBin, ".").Run()
 
-	os.WriteFile(filepath.Join(tmpDir, "myapp.json"), []byte(`{"admin-token": "custom-app-token"}`), 0600)
+_ = os.WriteFile(filepath.Join(tmpDir, "myapp.json"), []byte(`{"admin-token": "custom-app-token"}`), 0600)
 
 	cmd := exec.Command(customBin, "config", "show")
 	cmd.Dir = tmpDir
@@ -446,7 +446,7 @@ func TestAppNameResolution(t *testing.T) {
 		t.Fatalf("%s", out)
 	}
 	var m map[string]any
-	json.Unmarshal(out, &m)
+	_ = json.Unmarshal(out, &m)
 	if m["admin-token"] != "custom-app-token" {
 		t.Errorf("admin-token=%v", m["admin-token"])
 	}
@@ -457,10 +457,10 @@ func TestContextBinding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	binPath := filepath.Join(tmpDir, "min")
-	exec.Command("go", "build", "-o", binPath, ".").Run()
+	_ = exec.Command("go", "build", "-o", binPath, ".").Run()
 
 	out, err := exec.Command(binPath, "greet", "World").CombinedOutput()
 	if err != nil {

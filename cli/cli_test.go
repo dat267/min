@@ -8,11 +8,11 @@ import (
 )
 
 type TestCmd struct {
-	Name  string `cli:"help=Name,default=World,arg"`
-	Times int    `cli:"help=Times,default=1,short=t"`
-	Shout bool   `cli:"help=Shout,short=s"`
-	Opt   string `cli:"help=Optional"`
-	Req   string `cli:"help=Required,required"`
+	Name  string `help:"Name" default:"World" arg:""`
+	Times int    `help:"Times" default:"1" short:"t"`
+	Shout bool   `help:"Shout" short:"s"`
+	Opt   string `help:"Optional"`
+	Req   string `help:"Required" required:""`
 }
 
 func (t *TestCmd) Run() error {
@@ -30,22 +30,22 @@ func runTest(args []string, root any, opts ...Option) error {
 	return a.Parse(args)
 }
 
-type onlyName struct{ Name string `cli:"help=X"` }
-type nameDefault struct{ Name string `cli:"help=X,default=auto"` }
-type nameShort struct{ Name string `cli:"help=X,short=n"` }
-type nameDefaultEnv struct{ Name string `cli:"help=X,default=auto"` }
-type nameDefaultVal2 struct{ Name string `cli:"help=X,default=default-val"` }
-type namePlain struct{ Name string `cli:"help=X"` }
-type nameArg struct{ Name string `cli:"help=X,arg"` }
+type onlyName struct{ Name string `help:"X"` }
+type nameDefault struct{ Name string `help:"X" default:"auto"` }
+type nameShort struct{ Name string `help:"X" short:"n"` }
+type nameDefaultEnv struct{ Name string `help:"X" default:"auto"` }
+type nameDefaultVal2 struct{ Name string `help:"X" default:"default-val"` }
+type namePlain struct{ Name string `help:"X"` }
+type nameArg struct{ Name string `help:"X" arg:""` }
 type timeShout struct {
-	Times int  `cli:"help=T,short=t"`
-	Shout bool `cli:"help=S,short=s"`
-	Name  string `cli:"help=X,arg"`
+	Times int  `help:"T" short:"t"`
+	Shout bool `help:"S" short:"s"`
+	Name  string `help:"X" arg:""`
 }
-type nameString struct{ Name string `cli:"help=X"` }
-type nameDefaultVal3 struct{ Name string `cli:"help=X,default=default-val"` }
-type nameEnv struct{ Name string `cli:"help=X"` }
-type nameCoreTimeout struct{ CoreTimeout string `cli:"help=T,default=10s"` }
+type nameString struct{ Name string `help:"X"` }
+type nameDefaultVal3 struct{ Name string `help:"X" default:"default-val"` }
+type nameEnv struct{ Name string `help:"X"` }
+type nameCoreTimeout struct{ CoreTimeout string `help:"T" default:"10s"` }
 
 func TestFlagParsing(t *testing.T) {
 	t.Run("long flag", func(t *testing.T) {
@@ -80,7 +80,7 @@ func TestFlagParsing(t *testing.T) {
 	})
 	t.Run("bool flag", func(t *testing.T) {
 		root := &struct {
-			Verbose bool `cli:"help=V,short=v"`
+			Verbose bool `help:"V" short:"v"`
 		}{}
 		err := runTest([]string{"-v"}, root)
 		if err != nil {
@@ -92,7 +92,7 @@ func TestFlagParsing(t *testing.T) {
 	})
 	t.Run("bool flag false", func(t *testing.T) {
 		root := &struct {
-			Verbose bool `cli:"help=V,short=v"`
+			Verbose bool `help:"V" short:"v"`
 		}{}
 		err := runTest([]string{"--verbose=false"}, root)
 		if err != nil {
@@ -172,7 +172,7 @@ func TestPositionalArg(t *testing.T) {
 }
 
 func TestSubcommand(t *testing.T) {
-	root := &struct{ Greet TestCmd `cli:"cmd"` }{}
+	root := &struct{ Greet TestCmd `cmd:""` }{}
 	err := runTest([]string{"greet", "--req=abc"}, root)
 	if err != nil {
 		t.Fatal(err)
@@ -183,7 +183,7 @@ func TestSubcommand(t *testing.T) {
 }
 
 func TestSubcommandPositional(t *testing.T) {
-	root := &struct{ Greet TestCmd `cli:"cmd"` }{}
+	root := &struct{ Greet TestCmd `cmd:""` }{}
 	err := runTest([]string{"greet", "Alice", "--req=abc"}, root)
 	if err != nil {
 		t.Fatal(err)
@@ -226,8 +226,8 @@ func TestUnknownFlag(t *testing.T) {
 
 func TestFlagValueConsumesNextArg(t *testing.T) {
 	root := &struct {
-		Name string `cli:"help=X"`
-		Arg  string `cli:"help=A,arg"`
+		Name string `help:"X"`
+		Arg  string `help:"A" arg:""`
 	}{}
 	err := runTest([]string{"--name", "value", "pos"}, root)
 	if err != nil {
@@ -243,8 +243,8 @@ func TestFlagValueConsumesNextArg(t *testing.T) {
 
 func TestFlagValueLooksLikeFlag(t *testing.T) {
 	root := &struct {
-		Name string `cli:"help=X"`
-		Arg  string `cli:"help=A,arg"`
+		Name string `help:"X"`
+		Arg  string `help:"A" arg:""`
 	}{}
 	err := runTest([]string{"--name", "-value", "pos"}, root)
 	if err != nil {
@@ -260,8 +260,8 @@ func TestFlagValueLooksLikeFlag(t *testing.T) {
 
 func TestDoubleDash(t *testing.T) {
 	root := &struct {
-		Name string `cli:"help=X"`
-		Arg  string `cli:"help=A,arg"`
+		Name string `help:"X"`
+		Arg  string `help:"A" arg:""`
 	}{}
 	err := runTest([]string{"--", "--name", "hidden"}, root)
 	if err != nil {
@@ -277,8 +277,8 @@ func TestDoubleDash(t *testing.T) {
 
 func TestGlobalFlagInSubcommand(t *testing.T) {
 	root := &struct {
-		Verbose bool     `cli:"help=V,short=v"`
-		Greet   TestCmd  `cli:"cmd"`
+		Verbose bool     `help:"V" short:"v"`
+		Greet   TestCmd  `cmd:""`
 	}{}
 	err := runTest([]string{"greet", "--verbose", "--req=abc"}, root)
 	if err != nil {
@@ -291,8 +291,8 @@ func TestGlobalFlagInSubcommand(t *testing.T) {
 
 func TestGlobalFlagBeforeSubcommand(t *testing.T) {
 	root := &struct {
-		Verbose bool     `cli:"help=V,short=v"`
-		Greet   TestCmd  `cli:"cmd"`
+		Verbose bool     `help:"V" short:"v"`
+		Greet   TestCmd  `cmd:""`
 	}{}
 	err := runTest([]string{"--verbose", "greet", "--req=abc"}, root)
 	if err != nil {
@@ -376,9 +376,9 @@ func TestNullInConfigFallsBack(t *testing.T) {
 
 func TestCombinedShortFlags(t *testing.T) {
 	root := &struct {
-		Verbose bool `cli:"help=V,short=v"`
-		All     bool `cli:"help=A,short=a"`
-		Debug   bool `cli:"help=D,short=d"`
+		Verbose bool `help:"V" short:"v"`
+		All     bool `help:"A" short:"a"`
+		Debug   bool `help:"D" short:"d"`
 	}{}
 	err := runTest([]string{"-vad"}, root)
 	if err != nil {
@@ -391,7 +391,7 @@ func TestCombinedShortFlags(t *testing.T) {
 
 func TestCombinedShortWithValue(t *testing.T) {
 	root := &struct {
-		Name string `cli:"help=N,short=n"`
+		Name string `help:"N" short:"n"`
 	}{}
 	err := runTest([]string{"-nAlice"}, root)
 	if err != nil {
@@ -404,9 +404,9 @@ func TestCombinedShortWithValue(t *testing.T) {
 
 func TestCombinedShortMixed(t *testing.T) {
 	root := &struct {
-		Shout bool   `cli:"help=S,short=s"`
-		Name  string `cli:"help=N,short=n"`
-		Times int    `cli:"help=T,short=t"`
+		Shout bool   `help:"S" short:"s"`
+		Name  string `help:"N" short:"n"`
+		Times int    `help:"T" short:"t"`
 	}{}
 	err := runTest([]string{"-snAlice", "-t", "3"}, root)
 	if err != nil {
@@ -425,7 +425,7 @@ func TestCombinedShortMixed(t *testing.T) {
 
 func TestSliceAccumulation(t *testing.T) {
 	root := &struct {
-		Names []string `cli:"help=N,short=n"`
+		Names []string `help:"N" short:"n"`
 	}{}
 	err := runTest([]string{"--names", "a", "--names", "b", "-n", "c"}, root)
 	if err != nil {
@@ -446,8 +446,8 @@ func (r *runTracker) Run() error { r.ran = true; return nil }
 func TestDefaultSubcommand(t *testing.T) {
 	rt := &runTracker{}
 	root := &struct {
-		Default *runTracker `cli:"cmd"`
-		Other   NoopCmd     `cli:"cmd"`
+		Default *runTracker `cmd:""`
+		Other   NoopCmd     `cmd:""`
 	}{Default: rt}
 	err := runTest([]string{}, root, WithDefaultCmd("default"))
 	if err != nil {
@@ -461,8 +461,8 @@ func TestDefaultSubcommand(t *testing.T) {
 func TestDefaultSubcommandWithArgs(t *testing.T) {
 	rt := &runTracker{}
 	root := &struct {
-		Default *runTracker `cli:"cmd"`
-		Other   NoopCmd     `cli:"cmd"`
+		Default *runTracker `cmd:""`
+		Other   NoopCmd     `cmd:""`
 	}{Default: rt}
 	// Explicit subcommand should still work
 	err := runTest([]string{"other"}, root, WithDefaultCmd("default"))
@@ -471,5 +471,46 @@ func TestDefaultSubcommandWithArgs(t *testing.T) {
 	}
 	if rt.ran {
 		t.Fatal("default should not run when explicit subcommand given")
+	}
+}
+
+type DeepCmd struct {
+	Level int
+}
+
+func (d *DeepCmd) Run() error { d.Level++; return nil }
+
+func TestDeeplyNestedSubcommands(t *testing.T) {
+	dc := &DeepCmd{}
+	root := &struct {
+		A struct {
+			B struct {
+				C *DeepCmd `cmd:""`
+			} `cmd:""`
+		} `cmd:""`
+	}{}
+	root.A.B.C = dc
+	err := runTest([]string{"a", "b", "c"}, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dc.Level != 1 {
+		t.Fatal("deep nested command not executed")
+	}
+}
+
+func TestDeeplyNestedHelp(t *testing.T) {
+	root := &struct {
+		A struct {
+			B struct {
+				C struct {
+					D string `help:"deep flag"`
+				} `cmd:""`
+			} `cmd:""`
+		} `cmd:""`
+	}{}
+	err := runTest([]string{"a", "b", "c", "-h"}, root)
+	if err != nil {
+		t.Fatalf("expected nil (help shown), got %v", err)
 	}
 }

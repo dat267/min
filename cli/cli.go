@@ -1,3 +1,6 @@
+// Package cli provides a zero-dependency CLI parser using struct tags.
+// Define command structs with help,short,default,arg,cmd,required tags,
+// then call New().Parse().
 package cli
 
 import (
@@ -6,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"sort"
 	"strings"
 )
 
@@ -22,29 +24,14 @@ type Tag struct {
 
 func parseTag(ft reflect.StructField) Tag {
 	t := Tag{}
-	for _, s := range strings.Split(ft.Tag.Get("cli"), ",") {
-		s = strings.TrimSpace(s)
-		if s == "" {
-			continue
-		}
-		k, v, _ := strings.Cut(s, "=")
-		switch k {
-		case "help":
-			t.Help = v
-		case "short":
-			t.Short = v
-		case "default":
-			t.Default = v
-		case "arg":
-			t.Arg = true
-		case "cmd":
-			t.Cmd = true
-		case "required":
-			t.Req = true
-		case "placeholder":
-			t.Place = v
-		}
-	}
+	has := func(key string) bool { _, ok := ft.Tag.Lookup(key); return ok }
+	t.Help = ft.Tag.Get("help")
+	t.Short = ft.Tag.Get("short")
+	t.Default = ft.Tag.Get("default")
+	t.Arg = has("arg")
+	t.Cmd = has("cmd")
+	t.Req = has("required")
+	t.Place = ft.Tag.Get("placeholder")
 	return t
 }
 
@@ -115,12 +102,12 @@ func kebab(s string) string {
 }
 
 func (a *App) build(v reflect.Value, parent *cmd) *cmd {
-	for v.Kind() == reflect.Ptr {
+	for v.Kind() == reflect.Pointer {
 		v = v.Elem()
 	}
 	t := v.Type()
 	c := &cmd{name: t.Name(), val: v, parent: parent}
-	for i := 0; i < t.NumField(); i++ {
+	for i, n := 0, t.NumField(); i < n; i++ {
 		ft := t.Field(i)
 		fv := v.Field(i)
 		if !fv.CanSet() {
@@ -243,6 +230,25 @@ func (a *App) allFlags(cur *cmd) []*flag {
 	return fl
 }
 
+func (a *App) allFlagsDeep(root *cmd) []*flag {
+	var fl []*flag
+	seen := map[string]bool{}
+	var walk func(*cmd)
+	walk = func(c *cmd) {
+		for _, f := range c.flags {
+			if !seen[f.name] {
+				seen[f.name] = true
+				fl = append(fl, f)
+			}
+		}
+		for _, s := range c.subs {
+			walk(s)
+		}
+	}
+	walk(root)
+	return fl
+}
+
 func (a *App) setFlag(f *flag, val string, args []string, i *int) {
 	if f.val.Kind() == reflect.Bool {
 		set(f.val, "true")
@@ -273,15 +279,21 @@ func (a *App) parseOne(args []string, i *int, flags []*flag, cur *cmd) error {
 		return nil
 	}
 	if len(arg) < 2 {
+		a.help(cur)
 		return fmt.Errorf("invalid flag %q", arg)
 	}
 
 	// Combined short flags: -abc (exactly one dash, multiple chars, not =value)
 	if arg[0] == '-' && arg[1] != '-' && !strings.Contains(arg, "=") {
 		for ci, ch := range arg[1:] {
+			if ch == 'h' {
+				a.help(cur)
+				return errHelp
+			}
 			rest := arg[ci+2:]
 			f := a.flagByName(string(ch), flags)
 			if f == nil {
+				a.help(cur)
 				return fmt.Errorf("unknown flag -%c", ch)
 			}
 			if f.val.Kind() == reflect.Bool {
@@ -322,24 +334,8 @@ func (a *App) parseOne(args []string, i *int, flags []*flag, cur *cmd) error {
 		a.setFlag(f, val, args, i)
 		return nil
 	}
-	// Unknown flag with suggestion
-	var names []string
-	for _, f := range flags {
-		names = append(names, "--"+f.name)
-		if f.tag.Short != "" {
-			names = append(names, "-"+f.tag.Short)
-		}
-	}
-	sort.Strings(names)
-	msg := fmt.Sprintf("unknown flag %q", arg)
-	for _, n := range names {
-		nn := strings.TrimLeft(n, "-")
-		if nn != "" && levenshtein(strings.TrimLeft(arg, "-"), nn) <= 2 {
-			msg += fmt.Sprintf(", did you mean %s?", n)
-			break
-		}
-	}
-	return fmt.Errorf("%s", msg)
+	a.help(cur)
+	return fmt.Errorf("unknown flag %q", arg)
 }
 
 var errHelp = fmt.Errorf("help")
@@ -347,19 +343,35 @@ var errHelp = fmt.Errorf("help")
 func (a *App) Parse(args []string) error {
 	r := a.build(a.root, nil)
 
-	// Find subcommand boundary: first non-flag arg that matches a subcommand
+	// Find subcommand boundary: skip flags and their values
 	cmdIdx := 0
-	for i, arg := range args {
-		if strings.HasPrefix(arg, "-") {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if !strings.HasPrefix(arg, "-") {
+			for _, s := range r.subs {
+				if s.name == arg {
+					cmdIdx = i
+					goto foundSub
+				}
+			}
+			break
+		}
+		// Check if this flag consumes the next arg as its value
+		name := strings.TrimLeft(arg, "-")
+		if k, _, _ := strings.Cut(name, "="); k != name {
+			continue // has explicit =value, no consumption
+		}
+		if name == "h" || name == "help" {
 			continue
 		}
-		for _, s := range r.subs {
-			if s.name == arg {
-				cmdIdx = i
-				goto foundSub
+		f := a.flagByName(name, a.allFlagsDeep(r))
+		if f != nil && f.val.Kind() != reflect.Bool && !strings.Contains(name, "=") {
+			if len(arg) > 1 && arg[1] != '-' && len(arg) > 2 {
+				// Combined short with value: -nVal → already consumed
+				continue
 			}
+			i++ // skip the value
 		}
-		break
 	}
 foundSub:
 
@@ -379,8 +391,18 @@ foundSub:
 	remain := args[cmdIdx:]
 	for {
 		found := false
-		for i, arg := range remain {
+		for i := 0; i < len(remain); i++ {
+			arg := remain[i]
 			if strings.HasPrefix(arg, "-") {
+				// Skip flag values too
+				name := strings.TrimLeft(arg, "-")
+				if k, _, _ := strings.Cut(name, "="); k != name {
+					continue
+				}
+				f := a.flagByName(name, a.allFlagsDeep(r))
+				if f != nil && f.val.Kind() != reflect.Bool {
+					i++ // skip value
+				}
 				continue
 			}
 			for _, s := range cur.subs {
@@ -429,8 +451,15 @@ foundSub:
 			pos++
 			continue
 		}
+		if len(cur.subs) > 0 {
+			a.help(cur)
+			return fmt.Errorf("unknown command %q", arg)
+		}
+		a.help(cur)
 		return fmt.Errorf("unexpected argument %q", arg)
 	}
+
+	remainEmpty := len(remain) == 0
 
 	// Default subcommand fallback
 	if cur == r && len(r.subs) > 0 && a.defCmd != "" {
@@ -480,29 +509,33 @@ foundSub:
 			}
 		}
 		if len(missing) > 0 {
+			a.help(cur)
 			return fmt.Errorf("required: %s", strings.Join(missing, ", "))
 		}
 	}
 
-	// If we ended up at root with subcommands and no Run method, show help
 	v := cur.val
 	if v.CanAddr() {
 		v = v.Addr()
 	}
 	run := v.MethodByName("Run")
 	if !run.IsValid() {
-		if cur == r && len(r.subs) > 0 && len(args) == 0 {
+		if len(cur.subs) > 0 && remainEmpty {
 			a.help(cur)
-			return fmt.Errorf("no command specified")
+			if cur == r {
+				return fmt.Errorf("no command specified")
+			}
+			return nil
 		}
 		return nil
 	}
 	rargs := []reflect.Value{}
-	for i := 0; i < run.Type().NumIn(); i++ {
+	runT := run.Type()
+	for i, n := 0, runT.NumIn(); i < n; i++ {
 		t := run.Type().In(i)
 		if bv, ok := a.binds[t]; ok {
 			rargs = append(rargs, bv)
-		} else if t.Kind() == reflect.Ptr {
+		} else if t.Kind() == reflect.Pointer {
 			rargs = append(rargs, reflect.New(t.Elem()))
 		} else {
 			rargs = append(rargs, reflect.Zero(t))
@@ -608,24 +641,4 @@ func isInteractive() bool {
 	return err == nil && (fi.Mode()&os.ModeCharDevice) != 0
 }
 
-func levenshtein(a, b string) int {
-	la, lb := len(a), len(b)
-	d := make([][]int, la+1)
-	for i := range d {
-		d[i] = make([]int, lb+1)
-		d[i][0] = i
-	}
-	for j := 0; j <= lb; j++ {
-		d[0][j] = j
-	}
-	for i := 1; i <= la; i++ {
-		for j := 1; j <= lb; j++ {
-			c := 1
-			if a[i-1] == b[j-1] {
-				c = 0
-			}
-			d[i][j] = min(d[i-1][j]+1, min(d[i][j-1]+1, d[i-1][j-1]+c))
-		}
-	}
-	return d[la][lb]
-}
+

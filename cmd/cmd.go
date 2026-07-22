@@ -1,11 +1,12 @@
+// Package cmd implements the min CLI commands: greet, config init/show/path/edit.
+// Execute() is the entry point called from main().
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 
 	"min/cli"
@@ -15,137 +16,70 @@ const AppDescription = "Internal workflows and troubleshooting utility"
 
 type ConfigPath string
 
-type GreetCmd struct {
-	Name  string `cli:"help=Name of the person to greet,default=World,arg"`
-	Shout bool   `cli:"help=Convert the greeting to uppercase,short=s"`
-	Times int    `cli:"help=Number of times to repeat,default=1,short=t"`
+type Cmd struct {
+	Yes         bool            `help:"Skip interactive prompts for required parameters" short:"y"`
+	ConfigFile  string          `help:"Path to config file" placeholder:"PATH"`
+	AdminToken  string          `help:"Admin token" json:"admin-token"`
+	CoreTimeout string          `help:"Core timeout" default:"10s" json:"core-timeout"`
+	CoreRetries int             `help:"Core retries" default:"3" json:"core-retries"`
+	Debug       bool            `help:"Enable debug mode" json:"debug"`
+	DryRun      bool            `help:"Enable dry run mode" json:"dry-run"`
+	Config      ConfigCmdGroup  `help:"Manage application configuration" cmd:""`
+	Greet       GreetCmd        `help:"Print a personalized greeting message" cmd:""`
 }
 
-func (g *GreetCmd) Run(cli *CLI) error {
-	msg := fmt.Sprintf("Hello, %s! (Current core timeout setting is %s)", g.Name, cli.CoreTimeout)
-	if g.Shout {
-		msg = strings.ToUpper(msg)
-	}
-	for i := 0; i < g.Times; i++ {
-		fmt.Println(msg)
-	}
-	return nil
-}
-
-type ConfigCmdGroup struct {
-	Init ConfigInitCmd `cli:"help=Generate a default configuration profile template file,cmd"`
-	Path ConfigPathCmd `cli:"help=Show the active configuration file path,cmd"`
-	Show ConfigShowCmd `cli:"help=Print the active configuration values,cmd"`
-	Edit ConfigEditCmd `cli:"help=Open the active configuration file in an editor,cmd"`
-}
-
-type ConfigInitCmd struct {
-	Force bool `cli:"help=Overwrite existing configuration file,short=f"`
-}
-
-type ConfigPathCmd struct{}
-type ConfigShowCmd struct{}
-type ConfigEditCmd struct{}
-
-func (c *ConfigInitCmd) Run(path ConfigPath, cli *CLI) error {
-	p := string(path)
-	if _, err := os.Stat(p); err == nil && !c.Force {
-		return fmt.Errorf("configuration file already exists at %s", p)
-	}
-	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
-		return fmt.Errorf("failed to create configuration directory: %w", err)
-	}
-	cfg := map[string]any{
-		"admin-token":  cli.AdminToken,
-		"core-timeout": cli.CoreTimeout,
-		"core-retries": cli.CoreRetries,
-		"debug":        cli.Debug,
-		"dry-run":      cli.DryRun,
-	}
-	data, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal configuration: %w", err)
-	}
-	if err := os.WriteFile(p, data, 0o600); err != nil {
-		return fmt.Errorf("failed to write configuration file: %w", err)
-	}
-	fmt.Printf("Successfully generated base configuration file at: %s\n", p)
-	return nil
-}
-
-func (c *ConfigPathCmd) Run(path ConfigPath) error {
-	p := string(path)
-	if _, err := os.Stat(p); os.IsNotExist(err) {
-		fmt.Printf("%s (does not exist)\n", p)
-		return nil
-	}
-	fmt.Println(p)
-	return nil
-}
-
-func (c *ConfigShowCmd) Run(cli *CLI) error {
-	cfg := map[string]any{
-		"admin-token":  cli.AdminToken,
-		"core-timeout": cli.CoreTimeout,
-		"core-retries": cli.CoreRetries,
-		"debug":        cli.Debug,
-		"dry-run":      cli.DryRun,
-	}
-	data, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal configuration: %w", err)
-	}
-	fmt.Println(string(data))
-	return nil
-}
-
-func (c *ConfigEditCmd) Run(path ConfigPath) error {
-	p := string(path)
-	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
-		return fmt.Errorf("failed to create configuration directory: %w", err)
-	}
-	if _, err := os.Stat(p); os.IsNotExist(err) {
-		cfg := map[string]any{
-			"admin-token":  "",
-			"core-timeout": "2m",
-			"core-retries": 3,
-			"debug":        false,
-			"dry-run":      false,
-		}
-		data, err := json.MarshalIndent(cfg, "", "  ")
-		if err == nil {
-			_ = os.WriteFile(p, data, 0o600)
+func (c *Cmd) ConfigFields() map[string]any {
+	m := map[string]any{}
+	v := reflect.ValueOf(c).Elem()
+	t := v.Type()
+	for i, n := 0, t.NumField(); i < n; i++ {
+		ft := t.Field(i)
+		if j := ft.Tag.Get("json"); j != "" && j != "-" {
+			m[j] = v.Field(i).Interface()
 		}
 	}
-	editor := os.Getenv("EDITOR")
-	if editor == "" {
-		editor = "vim"
+	return m
+}
+
+func (Cmd) ConfigDefaults() map[string]any {
+	m := map[string]any{}
+	t := reflect.TypeFor[Cmd]()
+	for i, n := 0, t.NumField(); i < n; i++ {
+		ft := t.Field(i)
+		j := ft.Tag.Get("json")
+		if j == "" || j == "-" {
+			continue
+		}
+		d := ft.Tag.Get("default")
+		if d == "" {
+			switch ft.Type.Kind() {
+			case reflect.String:
+				m[j] = ""
+			case reflect.Bool:
+				m[j] = false
+			case reflect.Int, reflect.Int64:
+				m[j] = 0
+			}
+		} else {
+			switch ft.Type.Kind() {
+			case reflect.Int, reflect.Int64:
+				n := int64(0)
+				fmt.Sscanf(d, "%d", &n)
+				m[j] = n
+			default:
+				m[j] = d
+			}
+		}
 	}
-	ecmd := exec.Command(editor, p)
-	ecmd.Stdin = os.Stdin
-	ecmd.Stdout = os.Stdout
-	ecmd.Stderr = os.Stderr
-	return ecmd.Run()
+	return m
 }
 
-type CLI struct {
-	Yes         bool            `cli:"help=Skip interactive prompts for required parameters,short=y"`
-	ConfigFile  string          `cli:"help=Path to config file,placeholder=PATH"`
-	AdminToken  string          `cli:"help=Admin token"`
-	CoreTimeout string          `cli:"help=Core timeout,default=10s"`
-	CoreRetries int             `cli:"help=Core retries,default=3"`
-	Debug       bool            `cli:"help=Enable debug mode"`
-	DryRun      bool            `cli:"help=Enable dry run mode"`
-	Config      ConfigCmdGroup  `cli:"help=Manage application configuration,cmd"`
-	Greet       GreetCmd        `cli:"help=Print a personalized greeting message,cmd"`
-}
-
-func Run() {
+func Execute() {
 	appName := resolveAppName()
 	configPath := resolveConfigPath(appName)
 
-	appCli := &CLI{}
-	a := cli.New(appCli,
+	appCmd := &Cmd{}
+	a := cli.New(appCmd,
 		cli.WithName(appName),
 		cli.WithDesc(AppDescription),
 		cli.WithCfg(configPath),
@@ -153,7 +87,7 @@ func Run() {
 		cli.WithPrompt(),
 	)
 	a.Bind(ConfigPath(configPath))
-	a.Bind(appCli)
+	a.Bind(appCmd)
 
 	if err := a.Parse(os.Args[1:]); err != nil {
 		if err.Error() != "" {

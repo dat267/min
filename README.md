@@ -43,13 +43,13 @@ type GreetCmd struct {
 
 | Tag | Use |
 |-----|-----|
-| `help=text` | Help text for `--help` output |
-| `short=x` | Short flag alias (`-x`) |
-| `default=val` | Default value when none provided |
-| `required` | Fail if flag is missing |
-| `arg` | Positional argument instead of flag |
-| `cmd` | Marks a struct field as a subcommand |
-| `placeholder=X` | Placeholder name in help output |
+| `help:"text"` | Help text for `--help` output |
+| `short:"x"` | Short flag alias (`-x`) |
+| `default:"val"` | Default value when none provided |
+| `required:""` | Fail if flag is missing |
+| `arg:""` | Positional argument instead of flag |
+| `cmd:""` | Marks a struct field as a subcommand |
+| `placeholder:"X"` | Placeholder name in help output |
 
 ## Subcommands
 
