@@ -31,13 +31,13 @@ Every source overrides the next. Config file supports both nested
 
 ## Struct tags
 
-Commands and flags are defined with `cli` struct tags:
+Flags and arguments use Go struct tags:
 
 ```go
 type GreetCmd struct {
-    Name  string `cli:"help=Name to greet,default=World,arg"`
-    Shout bool   `cli:"help=Convert to uppercase,short=s"`
-    Times int    `cli:"help=Repeat count,default=1,short=t"`
+    Name  string `help:"Name to greet" default:"World" arg:""`
+    Shout bool   `help:"Convert to uppercase" short:"s"`
+    Times int    `help:"Repeat count" default:"1" short:"t"`
 }
 ```
 
@@ -51,18 +51,28 @@ type GreetCmd struct {
 | `cmd:""` | Marks a struct field as a subcommand |
 | `placeholder:"X"` | Placeholder name in help output |
 
-## Subcommands
+## Config schema
 
-Nested subcommands are supported at any depth:
+Config values exposed via `json:"key"` tags. The `Cmd` struct is the
+single source of truth — `ConfigFields()` and `ConfigDefaults()` use
+reflect to read the schema:
 
 ```go
-type CLI struct {
-    Config ConfigCmdGroup  `cli:"help=Manage configuration,cmd"`
-    Greet  GreetCmd        `cli:"help=Print a greeting,cmd"`
+type Cmd struct {
+    AdminToken  string `help:"Admin token" json:"admin-token"`
+    CoreTimeout string `help:"Core timeout" default:"10s" json:"core-timeout"`
+    CoreRetries int    `help:"Core retries" default:"3" json:"core-retries"`
+    Debug       bool   `help:"Enable debug mode" json:"debug"`
+    DryRun      bool   `help:"Enable dry run mode" json:"dry-run"`
+    Config      ConfigCmdGroup `help:"Manage configuration" cmd:""`
+    Greet       GreetCmd       `help:"Print a greeting" cmd:"""`
 }
 ```
 
-A default subcommand can be set with `cli.WithDefaultCmd("name")`.
+## Subcommands
+
+Nested subcommands are supported at any depth. A default subcommand
+can be set with `cli.WithDefaultCmd("name")`.
 
 ## Combined short flags
 
@@ -79,22 +89,12 @@ Repeated flags accumulate into `[]string` fields:
 
 ## Env vars
 
-Environment variables are auto-derived from flag names with the configured
-prefix. `--core-timeout` with prefix `MIN_` becomes `MIN_CORE_TIMEOUT`.
+Auto-derived from flag names with the configured prefix:
+`--core-timeout` with prefix `MIN_` becomes `MIN_CORE_TIMEOUT`.
 
 ## Config file
 
-JSON file loaded before parsing. Supports both formats:
-
-```json
-{"core-timeout": "5m", "core-retries": 3}
-```
-
-```json
-{"core": {"timeout": "5m", "retries": 3}}
-```
-
-Config file path resolved in order:
+JSON file loaded before parsing. Path resolved in order:
 1. `--config-file` CLI flag
 2. `$APPNAME_CONFIG_FILE` env var
 3. `appname.json` in current directory
@@ -103,20 +103,25 @@ Config file path resolved in order:
 ## Interactive prompting
 
 When a required flag is missing on a terminal, the library prompts
-interactively for a value. Skip with `-y` / `--yes`.
+interactively. Skip with `-y` / `--yes`.
 
-## "Did you mean?" suggestions
+## Errors
 
-Unknown flag names get Levenshtein-based suggestions:
+All parse errors show the relevant help first, then the specific
+problem. No "did you mean?" suggestions — just help + error.
+
+## Structure
 
 ```
-error: unknown flag "--verose", did you mean --verbose?
+main.go          — entry point: calls cmd.Execute()
+cli/cli.go       — generic parser, zero dependencies, ~640 lines
+cli/cli_test.go  — parser unit tests
+cmd/cmd.go       — Cmd struct, Execute(), config schema helpers
+cmd/greet.go     — GreetCmd
+cmd/config.go    — Config command group
+cmd/cmd_test.go  — command unit tests
+main_test.go     — integration tests
 ```
-
-## Library
-
-The entire CLI parser is in `cli/cli.go` — zero external dependencies.
-The application commands are in `cmd/`. `main.go` is the entry point:
 
 ```go
 package main
@@ -124,6 +129,6 @@ package main
 import "min/cmd"
 
 func main() {
-    cmd.Run()
+    cmd.Execute()
 }
 ```
