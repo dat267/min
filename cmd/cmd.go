@@ -25,7 +25,7 @@ type Cmd struct {
 	DryRun      bool            `help:"Enable dry run mode" json:"dry-run"`
 	Config      ConfigCmdGroup  `cmd:"" help:"Manage application configuration"`
 	Greet       GreetCmd        `cmd:"" help:"Print a personalized greeting message"`
-	Demo  DemoCmd  `cmd:"" help:"Demonstrate interactive prompting for required flags"`
+	Edge        EdgeCmd         `cmd:"" help:"Showcase all flag types and edge cases"`
 }
 
 func (c *Cmd) ConfigFields() map[string]any {
