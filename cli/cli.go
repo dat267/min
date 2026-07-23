@@ -656,7 +656,12 @@ func (a *App) help(cur *cmd) {
 		env := a.pre + "CONFIG_FILE"
 		fmt.Printf("      --config-file <PATH>    Path to config file [env: %s]\n", env)
 	}
-	for _, f := range cur.flags {
+	seen := map[string]bool{}
+	for _, f := range a.allFlags(cur) {
+		if seen[f.name] {
+			continue
+		}
+		seen[f.name] = true
 		b := "  "
 		if f.tag.Short != "" {
 			b += fmt.Sprintf("-%s, --%s", f.tag.Short, f.name)
