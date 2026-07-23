@@ -229,6 +229,24 @@ func (a *App) allFlags(cur *cmd) []*flag {
 	return fl
 }
 
+func (a *App) flagConsumesNext(arg string, deep []*flag) bool {
+	if !strings.HasPrefix(arg, "-") || strings.Contains(arg, "=") {
+		return false
+	}
+	name := strings.TrimLeft(arg, "-")
+	if name == "h" || name == "help" || name == "y" || name == "yes" {
+		return false
+	}
+	if name == "config-file" {
+		return true
+	}
+	if len(arg) > 1 && arg[1] != '-' && len(arg) > 2 {
+		return false // combined short with embedded value (-nVal)
+	}
+	f := a.flagByName(name, deep)
+	return f != nil && f.val.Kind() != reflect.Bool
+}
+
 func (a *App) allFlagsDeep(root *cmd) []*flag {
 	var fl []*flag
 	seen := map[string]bool{}
@@ -364,6 +382,7 @@ var errHelp = fmt.Errorf("help")
 
 func (a *App) Parse(args []string) error {
 	r := a.build(a.root, nil)
+	deep := a.allFlagsDeep(r)
 
 	// Find subcommand boundary: skip flags and their values
 	cmdIdx := 0
@@ -378,33 +397,15 @@ func (a *App) Parse(args []string) error {
 			}
 			break
 		}
-		// Check if this flag consumes the next arg as its value
-		name := strings.TrimLeft(arg, "-")
-		if k, _, _ := strings.Cut(name, "="); k != name {
-			continue // has explicit =value, no consumption
-		}
-		if name == "h" || name == "help" || name == "y" || name == "yes" {
-			continue
-		}
-		if name == "config-file" {
-			i++ // skip value
-			continue
-		}
-		f := a.flagByName(name, a.allFlagsDeep(r))
-		if f != nil && f.val.Kind() != reflect.Bool && !strings.Contains(name, "=") {
-			if len(arg) > 1 && arg[1] != '-' && len(arg) > 2 {
-				// Combined short with value: -nVal → already consumed
-				continue
-			}
-			i++ // skip the value
+		if a.flagConsumesNext(args[i], deep) {
+			i++
 		}
 	}
 foundSub:
 
 	// Process pre-subcommand flags on root
-	rootFlags := a.allFlags(r)
 	for i := 0; i < cmdIdx; i++ {
-		if err := a.parseOne(args, &i, rootFlags, r); err != nil {
+		if err := a.parseOne(args, &i, a.allFlags(r), r); err != nil {
 			if err == errHelp {
 				return nil
 			}
@@ -419,36 +420,22 @@ foundSub:
 		found := false
 		for i := 0; i < len(remain); i++ {
 			arg := remain[i]
-			if strings.HasPrefix(arg, "-") {
-				name := strings.TrimLeft(arg, "-")
-				if k, _, _ := strings.Cut(name, "="); k != name {
-					continue
+			if a.flagConsumesNext(arg, deep) {
+				i++
+			} else if !strings.HasPrefix(arg, "-") {
+				for _, s := range cur.subs {
+					if s.name == arg {
+						cur = s
+						remain = remain[i+1:]
+						found = true
+						break
+					}
 				}
-				if name == "h" || name == "help" || name == "y" || name == "yes" {
-					continue
-				}
-				if name == "config-file" {
-					i++
-					continue
-				}
-				f := a.flagByName(name, a.allFlagsDeep(r))
-				if f != nil && f.val.Kind() != reflect.Bool {
-					i++
-				}
-				continue
-			}
-			for _, s := range cur.subs {
-				if s.name == arg {
-					cur = s
-					remain = remain[i+1:]
-					found = true
+				if found {
 					break
 				}
-			}
-			if found {
 				break
 			}
-			break
 		}
 		if !found {
 			break
@@ -652,12 +639,6 @@ func (a *App) help(cur *cmd) {
 		}
 	}
 
-	var fls []*flag
-	for _, f := range cur.flags {
-		if f.name != "help" && f.name != "yes" {
-			fls = append(fls, f)
-		}
-	}
 	fmt.Println("\nFlags:")
 	fmt.Println("  -h, --help    Print help")
 	if a.prompt {
@@ -667,7 +648,7 @@ func (a *App) help(cur *cmd) {
 		env := a.pre + "CONFIG_FILE"
 		fmt.Printf("      --config-file <PATH>    Path to config file [env: %s]\n", env)
 	}
-	for _, f := range fls {
+	for _, f := range cur.flags {
 		b := "  "
 		if f.tag.Short != "" {
 			b += fmt.Sprintf("-%s, --%s", f.tag.Short, f.name)
