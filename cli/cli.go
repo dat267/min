@@ -112,7 +112,7 @@ func (a *App) build(v reflect.Value, parent *cmd) *cmd {
 	for i, n := 0, t.NumField(); i < n; i++ {
 		ft := t.Field(i)
 		fv := v.Field(i)
-		if !fv.CanSet() {
+		if !fv.CanSet() || ft.Tag.Get("json") == "-" {
 			continue
 		}
 		tg := parseTag(ft)
