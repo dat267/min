@@ -44,9 +44,7 @@ type timeShout struct {
 	Shout bool `help:"S" short:"s"`
 	Name  string `help:"X" arg:""`
 }
-type nameString struct{ Name string `help:"X"` }
 type nameDefaultVal3 struct{ Name string `help:"X" default:"default-val"` }
-type nameEnv struct{ Name string `help:"X"` }
 type nameCoreTimeout struct{ CoreTimeout string `help:"T" default:"10s"` }
 
 func TestFlagParsing(t *testing.T) {

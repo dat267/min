@@ -215,18 +215,6 @@ func (a *App) loadCfg() {
 	a.cfgFlat = flat
 }
 
-func (a *App) all(r *cmd) []*cmd {
-	var w func(*cmd) []*cmd
-	w = func(c *cmd) []*cmd {
-		x := []*cmd{c}
-		for _, s := range c.subs {
-			x = append(x, w(s)...)
-		}
-		return x
-	}
-	return w(r)
-}
-
 func (a *App) allFlags(cur *cmd) []*flag {
 	var fl []*flag
 	seen := map[string]bool{}
