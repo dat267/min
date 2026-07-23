@@ -6,9 +6,9 @@ Zero-dependency CLI framework with struct-tag parsing, env/config resolution, an
 Usage: min <command> [flags]
 
 Commands:
-  config    Manage application configuration
+   config    Manage application configuration
   greet     Print a personalized greeting message
-  demo      Demonstrate interactive prompting for required flags
+  edge      Showcase all flag types and edge cases
 
 Flags:
   -h, --help                  Print help
@@ -63,7 +63,7 @@ type Cmd struct {
     DryRun      bool   `help:"Enable dry run mode" json:"dry-run"`
     Config      ConfigCmdGroup `cmd:"" help:"Manage configuration"`
     Greet       GreetCmd       `cmd:"" help:"Print a greeting"`
-    Demo        DemoCmd        `cmd:"" help:"Demo required flag prompting"`
+    Edge        EdgeCmd        `cmd:"" help:"Showcase all flag types"`
 }
 ```
 
@@ -78,8 +78,7 @@ Required flags (`required:""`) prompt interactively on a terminal, like
 PowerShell's `[Parameter(Mandatory=$true)]`. Skip with `-y` / `--yes`.
 
 ```
-$ min demo
-Your name (--name):
+$ min edge --help
 ```
 
 Piped stdin or CI skips prompting automatically — shows help + error instead.
@@ -101,7 +100,7 @@ cli/cli_test.go  — parser unit tests
 cmd/cmd.go       — Cmd struct, Execute(), config schema helpers
 cmd/greet.go     — GreetCmd
 cmd/config.go    — Config command group
-cmd/demo.go      — DemoCmd
+cmd/edge.go      — EdgeCmd
 cmd/cmd_test.go  — command unit tests
 main_test.go     — integration tests
 ```

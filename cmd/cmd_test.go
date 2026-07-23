@@ -16,6 +16,10 @@ func captureStdout(fn func()) (string, error) {
 		return "", err
 	}
 	os.Stdout = w
+	defer func() {
+		_ = w.Close()
+		os.Stdout = old
+	}()
 	out := make(chan string)
 	go func() {
 		var buf bytes.Buffer
@@ -23,7 +27,7 @@ func captureStdout(fn func()) (string, error) {
 		out <- buf.String()
 	}()
 	fn()
-	w.Close()
+	_ = w.Close()
 	os.Stdout = old
 	return <-out, nil
 }
@@ -137,7 +141,9 @@ func TestConfigPathCmd(t *testing.T) {
 	}
 
 	path2 := filepath.Join(dir, "exists.json")
-	os.WriteFile(path2, []byte("{}"), 0600)
+	if err := os.WriteFile(path2, []byte("{}"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	output2, _ := captureStdout(func() { _ = (&ConfigPathCmd{}).Run(ConfigPath(path2)) })
 	if strings.TrimSpace(output2) != path2 {
 		t.Fatalf("got %q", output2)

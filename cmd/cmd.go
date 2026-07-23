@@ -57,15 +57,35 @@ func (Cmd) ConfigDefaults() map[string]any {
 				m[j] = ""
 			case reflect.Bool:
 				m[j] = false
-			case reflect.Int, reflect.Int64:
-				m[j] = 0
+			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+				m[j] = int64(0)
+			case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+				m[j] = uint64(0)
+			case reflect.Float32, reflect.Float64:
+				m[j] = float64(0)
 			}
 		} else {
 			switch ft.Type.Kind() {
-			case reflect.Int, reflect.Int64:
+			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 				n := int64(0)
 				if _, err := fmt.Sscanf(d, "%d", &n); err == nil {
 					m[j] = n
+				} else {
+					m[j] = d
+				}
+			case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+				n := uint64(0)
+				if _, err := fmt.Sscanf(d, "%d", &n); err == nil {
+					m[j] = n
+				} else {
+					m[j] = d
+				}
+			case reflect.Float32, reflect.Float64:
+				f := float64(0)
+				if _, err := fmt.Sscanf(d, "%f", &f); err == nil {
+					m[j] = f
+				} else {
+					m[j] = d
 				}
 			default:
 				m[j] = d
@@ -86,14 +106,13 @@ func Execute() {
 		cli.WithCfg(configPath),
 		cli.WithEnv(strings.ToUpper(appName)+"_"),
 		cli.WithPrompt(),
+		cli.WithConfigField("ConfigPath"),
 	)
 	a.Bind(ConfigPath(configPath))
 	a.Bind(appCmd)
 
 	if err := a.Parse(os.Args[1:]); err != nil {
-		if err.Error() != "" {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		}
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
 }

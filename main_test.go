@@ -11,6 +11,25 @@ import (
 	"testing"
 )
 
+var sharedBin string
+
+func TestMain(m *testing.M) {
+	tmpDir, err := os.MkdirTemp("", "min-test-shared-*")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to create shared dir: %v\n", err)
+		os.Exit(1)
+	}
+	sharedBin = filepath.Join(tmpDir, "min")
+	buildCmd := exec.Command("go", "build", "-o", sharedBin, ".")
+	if out, err := buildCmd.CombinedOutput(); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to build binary: %v\n%s\n", err, out)
+		os.Exit(1)
+	}
+	code := m.Run()
+	_ = os.RemoveAll(tmpDir)
+	os.Exit(code)
+}
+
 func TestParameterSpecificity(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "min-test-*")
 	if err != nil {
@@ -18,11 +37,7 @@ func TestParameterSpecificity(t *testing.T) {
 	}
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
-	binPath := filepath.Join(tmpDir, "min")
-	buildCmd := exec.Command("go", "build", "-o", binPath, ".")
-	if err := buildCmd.Run(); err != nil {
-		t.Fatalf("failed to build binary: %v", err)
-	}
+	binPath := sharedBin
 
 	runConfigShow := func(env []string, args ...string) (map[string]any, error) {
 		cmdArgs := append([]string{"config", "show"}, args...)
@@ -247,11 +262,11 @@ func TestYesFlagGlobal(t *testing.T) {
 	}
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
-	binPath := filepath.Join(tmpDir, "min")
-	_ = exec.Command("go", "build", "-o", binPath, ".").Run()
-
+	binPath := sharedBin
 	empty := filepath.Join(tmpDir, "empty.json")
-_ = os.WriteFile(empty, []byte("{}"), 0600)
+	if err := os.WriteFile(empty, []byte("{}"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	env := append(os.Environ(), "MIN_CONFIG_FILE="+empty)
 
 	subs := []string{"-y before", "-y after", "--yes", "with config show"}
@@ -278,11 +293,11 @@ func TestGreetCommandIntegration(t *testing.T) {
 	}
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
-	binPath := filepath.Join(tmpDir, "min")
-	_ = exec.Command("go", "build", "-o", binPath, ".").Run()
-
+	binPath := sharedBin
 	empty := filepath.Join(tmpDir, "empty.json")
-_ = os.WriteFile(empty, []byte("{}"), 0600)
+	if err := os.WriteFile(empty, []byte("{}"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	env := append(os.Environ(), "MIN_CONFIG_FILE="+empty)
 
 	t.Run("default", func(t *testing.T) {
@@ -336,9 +351,7 @@ func TestConfigInitIntegration(t *testing.T) {
 	}
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
-	binPath := filepath.Join(tmpDir, "min")
-	_ = exec.Command("go", "build", "-o", binPath, ".").Run()
-
+	binPath := sharedBin
 	cfgPath := filepath.Join(tmpDir, "test-config.json")
 	cfgEnv := "MIN_CONFIG_FILE=" + cfgPath
 
@@ -401,8 +414,7 @@ func TestErrorHandling(t *testing.T) {
 	}
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
-	binPath := filepath.Join(tmpDir, "min")
-	_ = exec.Command("go", "build", "-o", binPath, ".").Run()
+	binPath := sharedBin
 
 	t.Run("unknown flag", func(t *testing.T) {
 		out, err := exec.Command(binPath, "greet", "--unknown").CombinedOutput()
@@ -435,9 +447,13 @@ func TestAppNameResolution(t *testing.T) {
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	customBin := filepath.Join(tmpDir, "myapp")
-	_ = exec.Command("go", "build", "-o", customBin, ".").Run()
+	if err := exec.Command("go", "build", "-o", customBin, ".").Run(); err != nil {
+		t.Fatalf("failed to build binary: %v", err)
+	}
 
-_ = os.WriteFile(filepath.Join(tmpDir, "myapp.json"), []byte(`{"admin-token": "custom-app-token"}`), 0600)
+	if err := os.WriteFile(filepath.Join(tmpDir, "myapp.json"), []byte(`{"admin-token": "custom-app-token"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
 
 	cmd := exec.Command(customBin, "config", "show")
 	cmd.Dir = tmpDir
@@ -459,8 +475,7 @@ func TestContextBinding(t *testing.T) {
 	}
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
-	binPath := filepath.Join(tmpDir, "min")
-	_ = exec.Command("go", "build", "-o", binPath, ".").Run()
+	binPath := sharedBin
 
 	out, err := exec.Command(binPath, "greet", "World").CombinedOutput()
 	if err != nil {

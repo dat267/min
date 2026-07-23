@@ -35,6 +35,9 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Test
+        run: go test ./...
+
       - name: Build
         env:
           GOOS:        ${{ matrix.goos }}
@@ -44,9 +47,7 @@ jobs:
           SUFFIX=""
           [ "${{ matrix.goos }}" = "windows" ] && SUFFIX=".exe"
           OUT="${{ env.BIN_NAME }}-${{ matrix.goos }}-${{ matrix.goarch }}${SUFFIX}"
-          go build \
-            -ldflags "-s -w -X main.version=${{ env.BIN_NAME }}/${{ github.sha }}" \
-            -o "$OUT" .
+          go build -o "$OUT" .
 
       - uses: actions/upload-artifact@v7
         with:

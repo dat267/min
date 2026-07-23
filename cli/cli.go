@@ -35,10 +35,11 @@ func parseTag(ft reflect.StructField) Tag {
 }
 
 type flag struct {
-	name string
-	tag  Tag
-	val  reflect.Value
-	env  string
+	name     string
+	tag      Tag
+	val      reflect.Value
+	env      string
+	explicit bool
 }
 
 type cmd struct {
@@ -52,34 +53,43 @@ type cmd struct {
 }
 
 type App struct {
-	name      string
-	desc      string
-	root      reflect.Value
-	cfg       string
-	pre       string
-	prompt    bool
-	binds     map[reflect.Type]reflect.Value
-	ver       string
-	cfgLoaded bool
-	cfgFlat   map[string]any
-	defCmd    string
-	hasYes    bool
+	name       string
+	desc       string
+	root       reflect.Value
+	cfg        string
+	pre        string
+	prompt     bool
+	binds      map[reflect.Type]reflect.Value
+	ver        string
+	cfgLoaded  bool
+	cfgFlat    map[string]any
+	defCmd     string
+	hasYes     bool
+	cfgField   string
 }
 
 func (a *App) ConfigPath() string { return a.cfg }
 
-func WithName(s string) Option       { return func(a *App) { a.name = s } }
-func WithDesc(s string) Option        { return func(a *App) { a.desc = s } }
-func WithCfg(s string) Option         { return func(a *App) { a.cfg = s } }
-func WithEnv(s string) Option         { return func(a *App) { a.pre = s } }
-func WithPrompt() Option              { return func(a *App) { a.prompt = true } }
-func WithVersion(s string) Option     { return func(a *App) { a.ver = s } }
-func WithDefaultCmd(s string) Option  { return func(a *App) { a.defCmd = s } }
+func WithName(s string) Option        { return func(a *App) { a.name = s } }
+func WithDesc(s string) Option         { return func(a *App) { a.desc = s } }
+func WithCfg(s string) Option          { return func(a *App) { a.cfg = s } }
+func WithEnv(s string) Option          { return func(a *App) { a.pre = s } }
+func WithPrompt() Option               { return func(a *App) { a.prompt = true } }
+func WithVersion(s string) Option      { return func(a *App) { a.ver = s } }
+func WithDefaultCmd(s string) Option   { return func(a *App) { a.defCmd = s } }
+func WithConfigField(s string) Option  { return func(a *App) { a.cfgField = s } }
 
 type Option func(*App)
 
 func New(root any, opts ...Option) *App {
-	a := &App{root: reflect.ValueOf(root).Elem(), binds: map[reflect.Type]reflect.Value{}}
+	rv := reflect.ValueOf(root)
+	if rv.Kind() != reflect.Pointer || rv.IsNil() {
+		panic("cli: New() requires a non-nil pointer to a struct")
+	}
+	if rv.Elem().Kind() != reflect.Struct {
+		panic("cli: New() requires a non-nil pointer to a struct")
+	}
+	a := &App{root: rv.Elem(), binds: map[reflect.Type]reflect.Value{}}
 	for _, o := range opts {
 		o(a)
 	}
@@ -91,10 +101,18 @@ func (a *App) Bind(v any) { a.binds[reflect.TypeOf(v)] = reflect.ValueOf(v) }
 func kebab(s string) string {
 	var b strings.Builder
 	for i, r := range s {
-		if i > 0 && r >= 'A' && r <= 'Z' {
-			b.WriteRune('-')
-		}
 		if r >= 'A' && r <= 'Z' {
+			if i > 0 {
+				prev := rune(s[i-1])
+				switch {
+				case prev >= 'a' && prev <= 'z':
+					b.WriteRune('-')
+				case prev >= 'A' && prev <= 'Z' && i+1 < len(s) && rune(s[i+1]) >= 'a' && rune(s[i+1]) <= 'z':
+					b.WriteRune('-')
+				case prev >= '0' && prev <= '9':
+					b.WriteRune('-')
+				}
+			}
 			b.WriteRune(r + 32)
 		} else {
 			b.WriteRune(r)
@@ -105,29 +123,39 @@ func kebab(s string) string {
 
 func (a *App) build(v reflect.Value, parent *cmd) *cmd {
 	for v.Kind() == reflect.Pointer {
+		if v.IsNil() {
+			return nil
+		}
 		v = v.Elem()
+	}
+	if v.Kind() != reflect.Struct {
+		return nil
 	}
 	t := v.Type()
 	c := &cmd{name: t.Name(), val: v, parent: parent}
-	for i, n := 0, t.NumField(); i < n; i++ {
+	for i, fieldCount := 0, t.NumField(); i < fieldCount; i++ {
 		ft := t.Field(i)
 		fv := v.Field(i)
 		if !fv.CanSet() || ft.Tag.Get("json") == "-" {
 			continue
 		}
 		tg := parseTag(ft)
-		n := kebab(ft.Name)
-		if tg.Cmd {
+		fieldName := kebab(ft.Name)
+		switch {
+		case tg.Cmd:
 			ch := a.build(fv, c)
-			ch.name = n
+			if ch == nil {
+				continue
+			}
+			ch.name = fieldName
 			ch.help = tg.Help
 			c.subs = append(c.subs, ch)
-		} else if tg.Arg {
-			c.args = append(c.args, &flag{name: n, tag: tg, val: fv})
-		} else {
-			fl := &flag{name: n, tag: tg, val: fv}
+		case tg.Arg:
+			c.args = append(c.args, &flag{name: fieldName, tag: tg, val: fv})
+		default:
+			fl := &flag{name: fieldName, tag: tg, val: fv}
 			if a.pre != "" {
-				fl.env = a.pre + strings.ToUpper(strings.ReplaceAll(n, "-", "_"))
+				fl.env = a.pre + strings.ToUpper(strings.ReplaceAll(fieldName, "-", "_"))
 			}
 			c.flags = append(c.flags, fl)
 		}
@@ -137,45 +165,71 @@ func (a *App) build(v reflect.Value, parent *cmd) *cmd {
 
 var durationType = reflect.TypeFor[time.Duration]()
 
-func set(v reflect.Value, s string) {
+func set(v reflect.Value, s string) bool {
 	if v.Type() == durationType {
 		d, err := time.ParseDuration(s)
 		if err == nil {
 			v.SetInt(int64(d))
+			return true
 		}
-		return
+		return false
 	}
 	switch v.Kind() {
 	case reflect.String:
 		v.SetString(s)
+		return true
 	case reflect.Bool:
 		v.SetBool(s == "true" || s == "1" || s == "")
+		return true
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		n := int64(0)
 		if _, err := fmt.Sscanf(s, "%d", &n); err == nil {
 			v.SetInt(n)
+			return true
 		}
+		return false
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		n := uint64(0)
+		if _, err := fmt.Sscanf(s, "%d", &n); err == nil {
+			v.SetUint(n)
+			return true
+		}
+		return false
+	case reflect.Float32, reflect.Float64:
+		f := float64(0)
+		if _, err := fmt.Sscanf(s, "%f", &f); err == nil {
+			v.SetFloat(f)
+			return true
+		}
+		return false
 	case reflect.Slice:
 		if v.Type().Elem().Kind() == reflect.String {
 			v.Set(reflect.Append(v, reflect.ValueOf(s)))
+			return true
 		}
+		return false
 	}
+	return false
 }
 
 func (a *App) resolve(fl *flag) {
-	if !fl.val.IsZero() {
+	if fl.explicit {
 		return
 	}
 	if fl.env != "" {
 		if v, ok := os.LookupEnv(fl.env); ok {
-			set(fl.val, v)
+			if !set(fl.val, v) {
+				fmt.Fprintf(os.Stderr, "warning: invalid value %q for env %s\n", v, fl.env)
+			}
 			return
 		}
 	}
 	if a.cfg != "" {
 		a.loadCfg()
 		if v, ok := a.cfgFlat[fl.name]; ok && v != nil {
-			set(fl.val, fmt.Sprintf("%v", v))
+			if !set(fl.val, fmt.Sprintf("%v", v)) {
+				fmt.Fprintf(os.Stderr, "warning: invalid value %v for config key %s\n", v, fl.name)
+			}
 			return
 		}
 	}
@@ -192,13 +246,13 @@ func (a *App) loadCfg() {
 	data, err := os.ReadFile(filepath.Clean(a.cfg))
 	if err != nil {
 		if !os.IsNotExist(err) {
-			fmt.Fprintf(os.Stderr, "warning: config file %s: %v\n", a.cfg, err)
+			fmt.Fprintf(os.Stderr, "warning: config file %s: %v\n", filepath.Clean(a.cfg), err)
 		}
 		return
 	}
 	var raw map[string]any
 	if err := json.Unmarshal(data, &raw); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: config file %s: %v\n", a.cfg, err)
+		fmt.Fprintf(os.Stderr, "warning: config file %s: %v\n", filepath.Clean(a.cfg), err)
 		return
 	}
 	flat := map[string]any{}
@@ -278,6 +332,7 @@ func (a *App) allFlagsDeep(root *cmd) []*flag {
 }
 
 func (a *App) setFlag(f *flag, val string, args []string, i *int) {
+	f.explicit = true
 	if f.val.Kind() == reflect.Bool {
 		set(f.val, "true")
 		if val == "false" || val == "0" {
@@ -331,6 +386,7 @@ func (a *App) parseOne(args []string, i *int, flags []*flag, cur *cmd) error {
 				a.help(cur)
 				return fmt.Errorf("unknown flag -%c", ch)
 			}
+			f.explicit = true
 			if f.val.Kind() == reflect.Bool {
 				set(f.val, "true")
 				if rest == "false" || rest == "0" {
@@ -344,7 +400,7 @@ func (a *App) parseOne(args []string, i *int, flags []*flag, cur *cmd) error {
 					*i++
 					set(f.val, args[*i])
 				}
-				break // non-bool consumes the rest
+				break
 			}
 		}
 		return nil
@@ -396,18 +452,22 @@ func (a *App) Parse(args []string) error {
 	deep := a.allFlagsDeep(r)
 
 	// Find subcommand boundary: skip flags and their values
-	cmdIdx := 0
+	cmdIdx := len(args)
+	cmdIdxFound := false
+loop:
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		if arg == "--" {
 			cmdIdx = i
-			goto foundSub
+			cmdIdxFound = true
+			break loop
 		}
 		if !strings.HasPrefix(arg, "-") {
 			for _, s := range r.subs {
 				if s.name == arg {
 					cmdIdx = i
-					goto foundSub
+					cmdIdxFound = true
+					break loop
 				}
 			}
 			break
@@ -416,7 +476,9 @@ func (a *App) Parse(args []string) error {
 			i++
 		}
 	}
-foundSub:
+	if !cmdIdxFound {
+		cmdIdx = 0
+	}
 
 	// Process pre-subcommand flags on root
 	for i := 0; i < cmdIdx; i++ {
@@ -468,6 +530,7 @@ foundSub:
 		if arg == "--" {
 			for i++; i < len(remain); i++ {
 				if pos < len(cur.args) {
+					cur.args[pos].explicit = true
 					set(cur.args[pos].val, remain[i])
 					if pos < len(cur.args)-1 || cur.args[pos].val.Kind() != reflect.Slice {
 						pos++
@@ -486,6 +549,7 @@ foundSub:
 			continue
 		}
 		if pos < len(cur.args) {
+			cur.args[pos].explicit = true
 			set(cur.args[pos].val, arg)
 			if pos < len(cur.args)-1 || cur.args[pos].val.Kind() != reflect.Slice {
 				pos++
@@ -507,23 +571,31 @@ foundSub:
 		for _, s := range r.subs {
 			if s.name == a.defCmd {
 				cur = s
-				// Prepend the default subcommand name to remain so positional args still work
 				break
 			}
 		}
 	}
 
-	// Resolve env > config > defaults for flags and args
-	for _, f := range allFlags {
+	// Resolve env > config > defaults for flags (all ancestors of current command)
+	for _, f := range a.allFlags(cur) {
 		a.resolve(f)
 	}
 	for _, f := range cur.args {
-		if f.tag.Default != "" && f.val.IsZero() {
+		if f.tag.Default != "" && !f.explicit {
 			set(f.val, f.tag.Default)
 		}
 	}
 
-	// Required + prompt
+	if err := a.checkRequired(cur); err != nil {
+		return err
+	}
+
+	a.injectConfigPath()
+
+	return a.dispatch(cur, remainEmpty, r)
+}
+
+func (a *App) checkRequired(cur *cmd) error {
 	var missing []string
 	for _, f := range cur.flags {
 		if f.tag.Req && f.val.IsZero() {
@@ -532,42 +604,7 @@ foundSub:
 	}
 	if len(missing) > 0 {
 		if a.prompt && isInteractive() && !a.hasYes {
-			for _, f := range cur.flags {
-				if f.tag.Req && f.val.IsZero() {
-					switch f.val.Kind() {
-					case reflect.String:
-						fmt.Fprintf(os.Stderr, "%s (--%s): ", f.tag.Help, f.name)
-						var v string
-						fmt.Scanln(&v)
-						set(f.val, strings.TrimSpace(v))
-					case reflect.Bool:
-						for {
-							fmt.Fprintf(os.Stderr, "%s (--%s): ", f.tag.Help, f.name)
-							var v string
-							fmt.Scanln(&v)
-							v = strings.TrimSpace(v)
-							if v == "true" || v == "1" || v == "false" || v == "0" {
-								set(f.val, v)
-								break
-							}
-							fmt.Fprintf(os.Stderr, "  enter true/false\n")
-						}
-					default:
-						for f.val.IsZero() {
-							fmt.Fprintf(os.Stderr, "%s (--%s): ", f.tag.Help, f.name)
-							var v string
-							fmt.Scanln(&v)
-							v = strings.TrimSpace(v)
-							if v != "" {
-								set(f.val, v)
-							}
-							if f.val.IsZero() {
-								fmt.Fprintf(os.Stderr, "  invalid value\n")
-							}
-						}
-					}
-				}
-			}
+			a.promptFor(cur)
 			missing = nil
 			for _, f := range cur.flags {
 				if f.tag.Req && f.val.IsZero() {
@@ -580,17 +617,75 @@ foundSub:
 			return fmt.Errorf("required: %s", strings.Join(missing, ", "))
 		}
 	}
+	return nil
+}
 
-	if cf := a.root.FieldByName("ConfigPath"); cf.IsValid() && cf.Kind() == reflect.String {
-		cf.SetString(a.cfg)
-		// Also update the binding so Run() injection gets the live path
-		for t := range a.binds {
-			if t.Kind() == reflect.String && t.Name() == "ConfigPath" {
-				a.binds[t] = cf
+func (a *App) promptFor(cur *cmd) {
+	for _, f := range cur.flags {
+		if !f.tag.Req || !f.val.IsZero() {
+			continue
+		}
+		switch f.val.Kind() {
+		case reflect.String:
+			fmt.Fprintf(os.Stderr, "%s (--%s): ", f.tag.Help, f.name)
+			var v string
+			if _, err := fmt.Scanln(&v); err != nil {
+				return
+			}
+			set(f.val, strings.TrimSpace(v))
+		case reflect.Bool:
+			for {
+				fmt.Fprintf(os.Stderr, "%s (--%s): ", f.tag.Help, f.name)
+				var v string
+				if _, err := fmt.Scanln(&v); err != nil {
+					return
+				}
+				v = strings.TrimSpace(v)
+				lower := strings.ToLower(v)
+				if lower == "true" || lower == "1" || lower == "false" || lower == "0" {
+					set(f.val, lower)
+					break
+				}
+				fmt.Fprintf(os.Stderr, "  enter true/false\n")
+			}
+		default:
+			for {
+				fmt.Fprintf(os.Stderr, "%s (--%s): ", f.tag.Help, f.name)
+				var v string
+				if _, err := fmt.Scanln(&v); err != nil {
+					return
+				}
+				v = strings.TrimSpace(v)
+				if v == "" {
+					fmt.Fprintf(os.Stderr, "  enter a value\n")
+					continue
+				}
+				if set(f.val, v) {
+					break
+				}
+				fmt.Fprintf(os.Stderr, "  invalid value\n")
 			}
 		}
 	}
+}
 
+func (a *App) injectConfigPath() {
+	name := a.cfgField
+	if name == "" {
+		name = "ConfigPath"
+	}
+	if cf := a.root.FieldByName(name); cf.IsValid() && cf.Kind() == reflect.String {
+		cf.SetString(a.cfg)
+		for t := range a.binds {
+			if t.Kind() == reflect.String && t.Name() == name {
+				a.binds[t] = cf
+				break
+			}
+		}
+	}
+}
+
+func (a *App) dispatch(cur *cmd, remainEmpty bool, r *cmd) error {
 	v := cur.val
 	if v.CanAddr() {
 		v = v.Addr()
@@ -638,7 +733,11 @@ foundSub:
 }
 
 func (a *App) help(cur *cmd) {
-	fmt.Print("Usage: ", a.name)
+	name := a.name
+	if name == "" {
+		name = filepath.Base(os.Args[0])
+	}
+	fmt.Print("Usage: ", name)
 	if len(cur.subs) > 0 {
 		fmt.Print(" <command>")
 	}
@@ -647,11 +746,12 @@ func (a *App) help(cur *cmd) {
 	}
 	for _, f := range cur.args {
 		n := strings.ToUpper(f.name)
-		if f.tag.Default != "" {
+		switch {
+		case f.tag.Default != "":
 			fmt.Printf(" [%s=%s]", n, f.tag.Default)
-		} else if f.tag.Req {
+		case f.tag.Req:
 			fmt.Printf(" <%s>", n)
-		} else {
+		default:
 			fmt.Printf(" [%s]", n)
 		}
 	}
@@ -688,9 +788,12 @@ func (a *App) help(cur *cmd) {
 	if a.prompt {
 		fmt.Println("  -y, --yes    Skip interactive prompts")
 	}
-	if a.pre != "" {
-		env := a.pre + "CONFIG_FILE"
-		fmt.Printf("      --config-file <PATH>    Path to config file [env: %s]\n", env)
+	{
+		configHelp := "      --config-file <PATH>    Path to config file"
+		if a.pre != "" {
+			configHelp += fmt.Sprintf(" [env: %sCONFIG_FILE]", a.pre)
+		}
+		fmt.Println(configHelp)
 	}
 	seen := map[string]bool{}
 	for _, f := range a.allFlags(cur) {
