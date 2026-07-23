@@ -399,6 +399,10 @@ func (a *App) Parse(args []string) error {
 	cmdIdx := 0
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
+		if arg == "--" {
+			cmdIdx = i
+			goto foundSub
+		}
 		if !strings.HasPrefix(arg, "-") {
 			for _, s := range r.subs {
 				if s.name == arg {
@@ -431,6 +435,9 @@ foundSub:
 		found := false
 		for i := 0; i < len(remain); i++ {
 			arg := remain[i]
+			if arg == "--" {
+				break // stop routing at terminator
+			}
 			if a.flagConsumesNext(arg, remain, i, deep) {
 				i++
 			} else if !strings.HasPrefix(arg, "-") {
