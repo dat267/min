@@ -237,8 +237,11 @@ func (a *App) allFlags(cur *cmd) []*flag {
 func builtinNoArg(name string) bool  { return name == "h" || name == "help" || name == "y" || name == "yes" }
 func builtinHasArg(name string) bool  { return name == "config-file" }
 
-func (a *App) flagConsumesNext(arg string, deep []*flag) bool {
+func (a *App) flagConsumesNext(arg string, args []string, i int, deep []*flag) bool {
 	if !strings.HasPrefix(arg, "-") || strings.Contains(arg, "=") {
+		return false
+	}
+	if i+1 >= len(args) || args[i+1] == "--" {
 		return false
 	}
 	name := strings.TrimLeft(arg, "-")
@@ -249,7 +252,7 @@ func (a *App) flagConsumesNext(arg string, deep []*flag) bool {
 		return true
 	}
 	if len(arg) > 1 && arg[1] != '-' && len(arg) > 2 {
-		return false // combined short with embedded value (-nVal)
+		return false
 	}
 	f := a.flagByName(name, deep)
 	return f != nil && f.val.Kind() != reflect.Bool
@@ -281,7 +284,7 @@ func (a *App) setFlag(f *flag, val string, args []string, i *int) {
 			set(f.val, "false")
 		}
 	} else {
-		if val == "" && *i+1 < len(args) {
+		if val == "" && *i+1 < len(args) && args[*i+1] != "--" {
 			*i++
 			val = args[*i]
 		}
@@ -337,7 +340,7 @@ func (a *App) parseOne(args []string, i *int, flags []*flag, cur *cmd) error {
 			} else {
 				if rest != "" {
 					set(f.val, rest)
-				} else if *i+1 < len(args) {
+				} else if *i+1 < len(args) && args[*i+1] != "--" {
 					*i++
 					set(f.val, args[*i])
 				}
@@ -367,7 +370,7 @@ func (a *App) parseOne(args []string, i *int, flags []*flag, cur *cmd) error {
 	if name == "config-file" {
 		if val != "" {
 			a.cfg = val
-		} else if *i+1 < len(args) {
+		} else if *i+1 < len(args) && args[*i+1] != "--" {
 			*i++
 			a.cfg = args[*i]
 		}
@@ -405,7 +408,7 @@ func (a *App) Parse(args []string) error {
 			}
 			break
 		}
-		if a.flagConsumesNext(args[i], deep) {
+		if a.flagConsumesNext(args[i], args, i, deep) {
 			i++
 		}
 	}
@@ -428,7 +431,7 @@ foundSub:
 		found := false
 		for i := 0; i < len(remain); i++ {
 			arg := remain[i]
-			if a.flagConsumesNext(arg, deep) {
+			if a.flagConsumesNext(arg, remain, i, deep) {
 				i++
 			} else if !strings.HasPrefix(arg, "-") {
 				for _, s := range cur.subs {
