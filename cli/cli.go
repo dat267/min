@@ -229,15 +229,18 @@ func (a *App) allFlags(cur *cmd) []*flag {
 	return fl
 }
 
+func builtinNoArg(name string) bool  { return name == "h" || name == "help" || name == "y" || name == "yes" }
+func builtinHasArg(name string) bool  { return name == "config-file" }
+
 func (a *App) flagConsumesNext(arg string, deep []*flag) bool {
 	if !strings.HasPrefix(arg, "-") || strings.Contains(arg, "=") {
 		return false
 	}
 	name := strings.TrimLeft(arg, "-")
-	if name == "h" || name == "help" || name == "y" || name == "yes" {
+	if builtinNoArg(name) {
 		return false
 	}
-	if name == "config-file" {
+	if builtinHasArg(name) {
 		return true
 	}
 	if len(arg) > 1 && arg[1] != '-' && len(arg) > 2 {
