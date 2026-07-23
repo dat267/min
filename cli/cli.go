@@ -534,11 +534,37 @@ foundSub:
 		if a.prompt && isInteractive() && !a.hasYes {
 			for _, f := range cur.flags {
 				if f.tag.Req && f.val.IsZero() {
-					fmt.Fprintf(os.Stderr, "%s (--%s): ", f.tag.Help, f.name)
-					var v string
-					fmt.Scanln(&v)
-					if s := strings.TrimSpace(v); s != "" {
-						set(f.val, s)
+					switch f.val.Kind() {
+					case reflect.String:
+						fmt.Fprintf(os.Stderr, "%s (--%s): ", f.tag.Help, f.name)
+						var v string
+						fmt.Scanln(&v)
+						set(f.val, strings.TrimSpace(v))
+					case reflect.Bool:
+						for {
+							fmt.Fprintf(os.Stderr, "%s (--%s): ", f.tag.Help, f.name)
+							var v string
+							fmt.Scanln(&v)
+							v = strings.TrimSpace(v)
+							if v == "true" || v == "1" || v == "false" || v == "0" {
+								set(f.val, v)
+								break
+							}
+							fmt.Fprintf(os.Stderr, "  enter true/false\n")
+						}
+					default:
+						for f.val.IsZero() {
+							fmt.Fprintf(os.Stderr, "%s (--%s): ", f.tag.Help, f.name)
+							var v string
+							fmt.Scanln(&v)
+							v = strings.TrimSpace(v)
+							if v != "" {
+								set(f.val, v)
+							}
+							if f.val.IsZero() {
+								fmt.Fprintf(os.Stderr, "  invalid value\n")
+							}
+						}
 					}
 				}
 			}
