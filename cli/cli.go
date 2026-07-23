@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"time"
 )
 
 type Tag struct {
@@ -134,7 +135,16 @@ func (a *App) build(v reflect.Value, parent *cmd) *cmd {
 	return c
 }
 
+var durationType = reflect.TypeFor[time.Duration]()
+
 func set(v reflect.Value, s string) {
+	if v.Type() == durationType {
+		d, err := time.ParseDuration(s)
+		if err == nil {
+			v.SetInt(int64(d))
+		}
+		return
+	}
 	switch v.Kind() {
 	case reflect.String:
 		v.SetString(s)
@@ -466,7 +476,9 @@ foundSub:
 			for i++; i < len(remain); i++ {
 				if pos < len(cur.args) {
 					set(cur.args[pos].val, remain[i])
-					pos++
+					if pos < len(cur.args)-1 || cur.args[pos].val.Kind() != reflect.Slice {
+						pos++
+					}
 				}
 			}
 			break
@@ -482,7 +494,9 @@ foundSub:
 		}
 		if pos < len(cur.args) {
 			set(cur.args[pos].val, arg)
-			pos++
+			if pos < len(cur.args)-1 || cur.args[pos].val.Kind() != reflect.Slice {
+				pos++
+			}
 			continue
 		}
 		if len(cur.subs) > 0 {
@@ -576,13 +590,25 @@ foundSub:
 	rargs := []reflect.Value{}
 	runT := run.Type()
 	for i, n := 0, runT.NumIn(); i < n; i++ {
-		t := run.Type().In(i)
+		t := runT.In(i)
 		if bv, ok := a.binds[t]; ok {
 			rargs = append(rargs, bv)
-		} else if t.Kind() == reflect.Pointer {
-			rargs = append(rargs, reflect.New(t.Elem()))
-		} else {
-			rargs = append(rargs, reflect.Zero(t))
+			continue
+		}
+		found := false
+		for bt, bv := range a.binds {
+			if bt.AssignableTo(t) {
+				rargs = append(rargs, bv)
+				found = true
+				break
+			}
+		}
+		if !found {
+			if t.Kind() == reflect.Pointer {
+				rargs = append(rargs, reflect.New(t.Elem()))
+			} else {
+				rargs = append(rargs, reflect.Zero(t))
+			}
 		}
 	}
 	rv := run.Call(rargs)

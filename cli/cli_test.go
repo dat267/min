@@ -1,10 +1,12 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 type TestCmd struct {
@@ -512,5 +514,67 @@ func TestDeeplyNestedHelp(t *testing.T) {
 	err := runTest([]string{"a", "b", "c", "-h"}, root)
 	if err != nil {
 		t.Fatalf("expected nil (help shown), got %v", err)
+	}
+}
+
+func TestTimeDurationParsing(t *testing.T) {
+	root := &struct {
+		Interval time.Duration `help:"Poll interval" default:"5s"`
+	}{}
+	err := runTest([]string{"--interval=15m"}, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if root.Interval != 15*time.Minute {
+		t.Fatalf("got %v", root.Interval)
+	}
+}
+
+type hasCtx struct{ captured context.Context }
+
+func (h *hasCtx) Run(ctx context.Context) error {
+	h.captured = ctx
+	return nil
+}
+
+func TestPositionalSliceAccumulation(t *testing.T) {
+	root := &struct {
+		Files []string `arg:"" help:"Files to process"`
+	}{}
+	err := runTest([]string{"a.txt", "b.txt", "c.txt"}, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(root.Files) != 3 {
+		t.Fatalf("len=%d: %v", len(root.Files), root.Files)
+	}
+}
+
+func TestMixedPositionals(t *testing.T) {
+	root := &struct {
+		Name  string   `help:"Name" arg:""`
+		Files []string `help:"Files" arg:""`
+	}{}
+	err := runTest([]string{"Alice", "a.txt", "b.txt"}, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if root.Name != "Alice" {
+		t.Fatalf("name=%q", root.Name)
+	}
+	if len(root.Files) != 2 || root.Files[0] != "a.txt" || root.Files[1] != "b.txt" {
+		t.Fatalf("files=%v", root.Files)
+	}
+}
+
+func TestInterfaceBinding(t *testing.T) {
+	root := &hasCtx{}
+	a := New(root, WithName("test"))
+	a.Bind(context.Background())
+	if err := a.Parse([]string{}); err != nil {
+		t.Fatal(err)
+	}
+	if root.captured == nil {
+		t.Fatal("context was not injected via interface")
 	}
 }
