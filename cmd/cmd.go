@@ -64,8 +64,9 @@ func (Cmd) ConfigDefaults() map[string]any {
 			switch ft.Type.Kind() {
 			case reflect.Int, reflect.Int64:
 				n := int64(0)
-				fmt.Sscanf(d, "%d", &n)
-				m[j] = n
+				if _, err := fmt.Sscanf(d, "%d", &n); err == nil {
+					m[j] = n
+				}
 			default:
 				m[j] = d
 			}

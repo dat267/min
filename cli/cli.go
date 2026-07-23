@@ -152,8 +152,9 @@ func set(v reflect.Value, s string) {
 		v.SetBool(s == "true" || s == "1" || s == "")
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		n := int64(0)
-		fmt.Sscanf(s, "%d", &n)
-		v.SetInt(n)
+		if _, err := fmt.Sscanf(s, "%d", &n); err == nil {
+			v.SetInt(n)
+		}
 	case reflect.Slice:
 		if v.Type().Elem().Kind() == reflect.String {
 			v.Set(reflect.Append(v, reflect.ValueOf(s)))
@@ -190,10 +191,14 @@ func (a *App) loadCfg() {
 	a.cfgLoaded = true
 	data, err := os.ReadFile(filepath.Clean(a.cfg))
 	if err != nil {
+		if !os.IsNotExist(err) {
+			fmt.Fprintf(os.Stderr, "warning: config file %s: %v\n", a.cfg, err)
+		}
 		return
 	}
 	var raw map[string]any
 	if err := json.Unmarshal(data, &raw); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: config file %s: %v\n", a.cfg, err)
 		return
 	}
 	flat := map[string]any{}
