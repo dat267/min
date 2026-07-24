@@ -1435,3 +1435,186 @@ func TestHelpWithFlagEnvVar(t *testing.T) {
 		t.Errorf("expected MY_TOKEN env in help: %s", out)
 	}
 }
+
+func TestChoicesValidation(t *testing.T) {
+	root := &struct {
+		Level string `help:"Log level" choices:"debug,info,warn"`
+	}{}
+	err := runTest([]string{"--level=info"}, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if root.Level != "info" {
+		t.Fatalf("got %q", root.Level)
+	}
+}
+
+func TestChoicesRejectsInvalidAndFallsBackToDefault(t *testing.T) {
+	root := &struct {
+		Level string `help:"Log level" default:"info" choices:"debug,info,warn"`
+	}{}
+	err := runTest([]string{"--level=invalid"}, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if root.Level != "info" {
+		t.Fatalf("expected fallback to default, got %q", root.Level)
+	}
+}
+
+func TestChoicesWithDefault(t *testing.T) {
+	root := &struct {
+		Level string `help:"Log level" default:"warn" choices:"debug,info,warn"`
+	}{}
+	err := runTest([]string{}, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if root.Level != "warn" {
+		t.Fatalf("got %q", root.Level)
+	}
+}
+
+func TestChoicesOnPositionalArg(t *testing.T) {
+	root := &struct {
+		Mode string `help:"Mode" choices:"on,off" arg:""`
+	}{}
+	err := runTest([]string{"on"}, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if root.Mode != "on" {
+		t.Fatalf("got %q", root.Mode)
+	}
+}
+
+func TestHiddenFlagNotShownInHelp(t *testing.T) {
+	a := New(&struct {
+		Visible string `help:"shown"`
+		Secret  string `help:"hidden" hidden:""`
+	}{}, WithName("test"))
+	r := a.build(a.root, nil)
+	old := os.Stdout
+	rd, wr, _ := os.Pipe()
+	os.Stdout = wr
+	a.help(r)
+	_ = wr.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	_, _ = buf.ReadFrom(rd)
+	out := buf.String()
+	if !strings.Contains(out, "shown") {
+		t.Errorf("visible flag missing: %s", out)
+	}
+	if strings.Contains(out, "hidden") {
+		t.Errorf("hidden flag should not appear: %s", out)
+	}
+}
+
+func TestHiddenSubcommandNotShownInHelp(t *testing.T) {
+	a := New(&struct {
+		Visible struct{} `cmd:"" help:"visible"`
+		Secret  struct{} `cmd:"" help:"secret" hidden:""`
+	}{}, WithName("test"))
+	r := a.build(a.root, nil)
+	old := os.Stdout
+	rd, wr, _ := os.Pipe()
+	os.Stdout = wr
+	a.help(r)
+	_ = wr.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	_, _ = buf.ReadFrom(rd)
+	out := buf.String()
+	if !strings.Contains(out, "visible") {
+		t.Errorf("visible subcommand missing: %s", out)
+	}
+	if strings.Contains(out, "secret") {
+		t.Errorf("hidden subcommand should not appear: %s", out)
+	}
+}
+
+func TestEnvChoicesFallbackToDefault(t *testing.T) {
+	t.Setenv("TEST_LEVEL", "invalid")
+	root := &struct {
+		Level string `help:"Log level" default:"info" choices:"debug,info,warn"`
+	}{}
+	err := runTest([]string{}, root, WithEnv("TEST_"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if root.Level != "info" {
+		t.Fatalf("expected fallback to default when env has invalid choice, got %q", root.Level)
+	}
+}
+
+func TestChoicesWithSpaces(t *testing.T) {
+	root := &struct {
+		Level string `help:"Log level" choices:"a, b, c"`
+	}{}
+	err := runTest([]string{"--level=a"}, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if root.Level != "a" {
+		t.Fatalf("got %q", root.Level)
+	}
+}
+
+func TestChoicesUintType(t *testing.T) {
+	root := &struct {
+		Port uint `help:"Port" choices:"80,443,8080"`
+	}{}
+	err := runTest([]string{"--port=443"}, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if root.Port != 443 {
+		t.Fatalf("got %d", root.Port)
+	}
+}
+
+func TestChoicesFloatType(t *testing.T) {
+	root := &struct {
+		Ratio float64 `help:"Ratio" choices:"0.5,1.0,2.0"`
+	}{}
+	err := runTest([]string{"--ratio=1.0"}, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if root.Ratio != 1.0 {
+		t.Fatalf("got %v", root.Ratio)
+	}
+}
+
+func TestChoicesSliceIgnored(t *testing.T) {
+	root := &struct {
+		Tags []string `help:"Tags" choices:"a,b,c"`
+	}{}
+	err := runTest([]string{"--tags=a", "--tags=b", "--tags=c"}, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(root.Tags) != 3 {
+		t.Fatalf("got %v", root.Tags)
+	}
+}
+
+func TestChoicesShownInHelp(t *testing.T) {
+	a := New(&struct {
+		Level string `help:"Log level" choices:"debug,info,warn"`
+	}{}, WithName("test"))
+	r := a.build(a.root, nil)
+	old := os.Stdout
+	rd, wr, _ := os.Pipe()
+	os.Stdout = wr
+	a.help(r)
+	_ = wr.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	_, _ = buf.ReadFrom(rd)
+	out := buf.String()
+	if !strings.Contains(out, "choices: debug, info, warn") {
+		t.Fatalf("choices not shown in help: %s", out)
+	}
+}

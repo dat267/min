@@ -1,6 +1,12 @@
 // Package cli provides a zero-dependency CLI parser using struct tags.
-// Define command structs with help,short,default,arg,cmd,required tags,
-// then call New().Parse().
+//
+// Define command structs with help, short, default, arg, cmd, required,
+// choices, and hidden tags, then call New().Parse().
+//
+// Resolution order: CLI args > env vars > config file > struct defaults.
+//
+// Subcommands, positional args, combined short flags, and interactive
+// prompting for required flags are supported out of the box.
 package cli
 
 import (
@@ -13,13 +19,17 @@ import (
 	"time"
 )
 
+// Tag holds the parsed struct tag values for a single struct field.
+// Populated by parseTag from the field's reflect.StructField.
 type Tag struct {
-	Help    string
-	Short   string
-	Default string
-	Arg     bool
-	Cmd     bool
-	Req     bool
+	Help    string   // help text shown in --help output
+	Short   string   // single-character short flag alias (e.g. "v" for -v)
+	Default string   // default value string from struct tag
+	Arg     bool     // field is a positional argument (arg:"")
+	Cmd     bool     // field is a subcommand group (cmd:"")
+	Req     bool     // flag is required (required:"")
+	Hidden  bool     // suppress in help output (hidden:"")
+	Choices []string // allowed values from choices:"a,b,c" tag
 }
 
 func parseTag(ft reflect.StructField) Tag {
@@ -31,6 +41,14 @@ func parseTag(ft reflect.StructField) Tag {
 	t.Arg = has("arg")
 	t.Cmd = has("cmd")
 	t.Req = has("required")
+	t.Hidden = has("hidden")
+	if c := ft.Tag.Get("choices"); c != "" {
+		raw := strings.Split(c, ",")
+		t.Choices = make([]string, len(raw))
+		for i, s := range raw {
+			t.Choices[i] = strings.TrimSpace(s)
+		}
+	}
 	return t
 }
 
@@ -45,6 +63,7 @@ type flag struct {
 type cmd struct {
 	name   string
 	help   string
+	hidden bool
 	val    reflect.Value
 	flags  []*flag
 	args   []*flag
@@ -52,6 +71,7 @@ type cmd struct {
 	parent *cmd
 }
 
+// App is the top-level CLI application. Created via New().
 type App struct {
 	name       string
 	desc       string
@@ -68,19 +88,38 @@ type App struct {
 	cfgField   string
 }
 
+// ConfigPath returns the active config file path.
 func (a *App) ConfigPath() string { return a.cfg }
 
-func WithName(s string) Option        { return func(a *App) { a.name = s } }
-func WithDesc(s string) Option         { return func(a *App) { a.desc = s } }
-func WithCfg(s string) Option          { return func(a *App) { a.cfg = s } }
-func WithEnv(s string) Option          { return func(a *App) { a.pre = s } }
-func WithPrompt() Option               { return func(a *App) { a.prompt = true } }
-func WithVersion(s string) Option      { return func(a *App) { a.ver = s } }
-func WithDefaultCmd(s string) Option   { return func(a *App) { a.defCmd = s } }
-func WithConfigField(s string) Option  { return func(a *App) { a.cfgField = s } }
+// WithName sets the app name shown in usage text.
+func WithName(s string) Option { return func(a *App) { a.name = s } }
 
+// WithDesc sets the app description shown below the usage line.
+func WithDesc(s string) Option { return func(a *App) { a.desc = s } }
+
+// WithCfg sets the default config file path.
+func WithCfg(s string) Option { return func(a *App) { a.cfg = s } }
+
+// WithEnv sets the env var prefix for auto-derived flag env vars.
+func WithEnv(s string) Option { return func(a *App) { a.pre = s } }
+
+// WithPrompt enables interactive prompting for required flags.
+func WithPrompt() Option { return func(a *App) { a.prompt = true } }
+
+// WithVersion enables the --version flag.
+func WithVersion(s string) Option { return func(a *App) { a.ver = s } }
+
+// WithDefaultCmd sets a default subcommand name.
+func WithDefaultCmd(s string) Option { return func(a *App) { a.defCmd = s } }
+
+// WithConfigField sets the struct field name for config path injection.
+func WithConfigField(s string) Option { return func(a *App) { a.cfgField = s } }
+
+// Option configures an App. Used with New().
 type Option func(*App)
 
+// New creates an App from a root struct pointer. Panics if root is nil
+// or not a pointer to a struct.
 func New(root any, opts ...Option) *App {
 	rv := reflect.ValueOf(root)
 	if rv.Kind() != reflect.Pointer || rv.IsNil() {
@@ -96,6 +135,8 @@ func New(root any, opts ...Option) *App {
 	return a
 }
 
+// Bind registers a value for dependency injection into Run() methods.
+// The value's type is used as the lookup key when resolving Run parameters.
 func (a *App) Bind(v any) { a.binds[reflect.TypeOf(v)] = reflect.ValueOf(v) }
 
 func kebab(s string) string {
@@ -149,6 +190,7 @@ func (a *App) build(v reflect.Value, parent *cmd) *cmd {
 			}
 			ch.name = fieldName
 			ch.help = tg.Help
+			ch.hidden = tg.Hidden
 			c.subs = append(c.subs, ch)
 		case tg.Arg:
 			c.args = append(c.args, &flag{name: fieldName, tag: tg, val: fv})
@@ -218,8 +260,10 @@ func (a *App) resolve(fl *flag) {
 	}
 	if fl.env != "" {
 		if v, ok := os.LookupEnv(fl.env); ok {
-			if !set(fl.val, v) {
-				fmt.Fprintf(os.Stderr, "warning: invalid value %q for env %s\n", v, fl.env)
+			if set(fl.val, v) && !validate(fl) {
+				fmt.Fprintf(os.Stderr, "warning: value %q not in choices %v for env %s, falling back to default\n", v, fl.tag.Choices, fl.env)
+				a.applyDefault(fl)
+				return
 			}
 			return
 		}
@@ -227,15 +271,61 @@ func (a *App) resolve(fl *flag) {
 	if a.cfg != "" {
 		a.loadCfg()
 		if v, ok := a.cfgFlat[fl.name]; ok && v != nil {
-			if !set(fl.val, fmt.Sprintf("%v", v)) {
-				fmt.Fprintf(os.Stderr, "warning: invalid value %v for config key %s\n", v, fl.name)
+			vs := fmt.Sprintf("%v", v)
+			if set(fl.val, vs) && !validate(fl) {
+				fmt.Fprintf(os.Stderr, "warning: value %v not in choices %v for config key %s, falling back to default\n", v, fl.tag.Choices, fl.name)
+				a.applyDefault(fl)
+				return
 			}
 			return
 		}
 	}
 	if fl.tag.Default != "" && fl.val.IsZero() {
 		set(fl.val, fl.tag.Default)
+		if !validate(fl) {
+			fmt.Fprintf(os.Stderr, "warning: default %q not in choices %v for flag --%s\n", fl.tag.Default, fl.tag.Choices, fl.name)
+		}
 	}
+}
+
+func (a *App) applyDefault(fl *flag) {
+	if fl.tag.Default == "" {
+		return
+	}
+	set(fl.val, fl.tag.Default)
+	if !validate(fl) {
+		fmt.Fprintf(os.Stderr, "warning: default %q not in choices %v for flag --%s\n", fl.tag.Default, fl.tag.Choices, fl.name)
+	}
+}
+
+func validate(fl *flag) bool {
+	if len(fl.tag.Choices) == 0 || fl.val.Kind() == reflect.Slice {
+		return true
+	}
+	for _, c := range fl.tag.Choices {
+		switch fl.val.Kind() {
+		case reflect.String:
+			if fl.val.String() == c {
+				return true
+			}
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			n := int64(0)
+			if _, err := fmt.Sscanf(c, "%d", &n); err == nil && fl.val.Int() == n {
+				return true
+			}
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			n := uint64(0)
+			if _, err := fmt.Sscanf(c, "%d", &n); err == nil && fl.val.Uint() == n {
+				return true
+			}
+		case reflect.Float32, reflect.Float64:
+			f := float64(0)
+			if _, err := fmt.Sscanf(c, "%f", &f); err == nil && fl.val.Float() == f {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (a *App) loadCfg() {
@@ -332,18 +422,23 @@ func (a *App) allFlagsDeep(root *cmd) []*flag {
 }
 
 func (a *App) setFlag(f *flag, val string, args []string, i *int) {
-	f.explicit = true
 	if f.val.Kind() == reflect.Bool {
 		set(f.val, "true")
 		if val == "false" || val == "0" {
 			set(f.val, "false")
 		}
+		f.explicit = true
 	} else {
 		if val == "" && *i+1 < len(args) && args[*i+1] != "--" {
 			*i++
 			val = args[*i]
 		}
 		set(f.val, val)
+		f.explicit = validate(f)
+		if !f.explicit && f.tag.Default != "" {
+			set(f.val, f.tag.Default)
+			f.explicit = true
+		}
 	}
 }
 
@@ -386,9 +481,9 @@ func (a *App) parseOne(args []string, i *int, flags []*flag, cur *cmd) error {
 				a.help(cur)
 				return fmt.Errorf("unknown flag -%c", ch)
 			}
-			f.explicit = true
 			if f.val.Kind() == reflect.Bool {
 				set(f.val, "true")
+				f.explicit = true
 				if rest == "false" || rest == "0" {
 					set(f.val, "false")
 					break
@@ -399,6 +494,11 @@ func (a *App) parseOne(args []string, i *int, flags []*flag, cur *cmd) error {
 				} else if *i+1 < len(args) && args[*i+1] != "--" {
 					*i++
 					set(f.val, args[*i])
+				}
+				f.explicit = validate(f)
+				if !f.explicit && f.tag.Default != "" {
+					set(f.val, f.tag.Default)
+					f.explicit = true
 				}
 				break
 			}
@@ -447,6 +547,9 @@ func (a *App) parseOne(args []string, i *int, flags []*flag, cur *cmd) error {
 
 var errHelp = fmt.Errorf("help")
 
+// Parse parses CLI args, resolves env/config/defaults, and dispatches to Run.
+// Returns nil on success, help display, or --version. Returns error on
+// unknown flags, missing commands, or Run() errors.
 func (a *App) Parse(args []string) error {
 	r := a.build(a.root, nil)
 	deep := a.allFlagsDeep(r)
@@ -532,6 +635,9 @@ loop:
 				if pos < len(cur.args) {
 					cur.args[pos].explicit = true
 					set(cur.args[pos].val, remain[i])
+					if !validate(cur.args[pos]) && cur.args[pos].tag.Default != "" {
+						set(cur.args[pos].val, cur.args[pos].tag.Default)
+					}
 					if pos < len(cur.args)-1 || cur.args[pos].val.Kind() != reflect.Slice {
 						pos++
 					}
@@ -551,6 +657,9 @@ loop:
 		if pos < len(cur.args) {
 			cur.args[pos].explicit = true
 			set(cur.args[pos].val, arg)
+			if !validate(cur.args[pos]) && cur.args[pos].tag.Default != "" {
+				set(cur.args[pos].val, cur.args[pos].tag.Default)
+			}
 			if pos < len(cur.args)-1 || cur.args[pos].val.Kind() != reflect.Slice {
 				pos++
 			}
@@ -764,11 +873,16 @@ func (a *App) help(cur *cmd) {
 		fmt.Println("\nCommands:")
 		max := 0
 		for _, s := range cur.subs {
-			if l := len(s.name); l > max {
-				max = l
+			if !s.hidden {
+				if l := len(s.name); l > max {
+					max = l
+				}
 			}
 		}
 		for _, s := range cur.subs {
+			if s.hidden {
+				continue
+			}
 			n := "  " + s.name
 			if len(n) < max+6 {
 				n += strings.Repeat(" ", max+6-len(n))
@@ -797,7 +911,7 @@ func (a *App) help(cur *cmd) {
 	}
 	seen := map[string]bool{}
 	for _, f := range a.allFlags(cur) {
-		if seen[f.name] {
+		if seen[f.name] || f.tag.Hidden {
 			continue
 		}
 		seen[f.name] = true
@@ -822,6 +936,9 @@ func (a *App) help(cur *cmd) {
 		}
 		if f.tag.Default != "" {
 			fmt.Printf(" [default: %s]", f.tag.Default)
+		}
+		if len(f.tag.Choices) > 0 {
+			fmt.Printf(" [choices: %s]", strings.Join(f.tag.Choices, ", "))
 		}
 		if f.env != "" {
 			fmt.Printf(" [env: %s]", f.env)

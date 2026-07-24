@@ -48,6 +48,8 @@ type GreetCmd struct {
 | `required:""` | Fail if flag is missing |
 | `arg:""` | Positional argument instead of flag |
 | `cmd:""` | Marks a struct field as a subcommand |
+| `choices:"a,b,c"` | Comma-separated allowed values |
+| `hidden:""` | Hide from `--help` output |
 
 ## Config schema
 
@@ -90,12 +92,14 @@ Piped stdin or CI skips prompting automatically — shows help + error instead.
 - **Env vars** — auto-derived from flag names with prefix
 - **Global flags** — shared flags on `Cmd`, single-use flags on subcommands
 - **Built-in flags** — `-y`/`--yes`, `--config-file`, `-h`/`--help`
+- **Choices validation** — `choices:"a,b,c"` rejects invalid values with default fallback
+- **Hidden flags/commands** — `hidden:""` suppresses display in help output
 
 ## Structure
 
 ```
 main.go          — entry point: calls cmd.Execute()
-cli/cli.go       — generic parser, zero dependencies, ~670 lines
+cli/cli.go       — generic parser, zero dependencies, ~890 lines
 cli/cli_test.go  — parser unit tests
 cmd/cmd.go       — Cmd struct, Execute(), config schema helpers
 cmd/greet.go     — GreetCmd
