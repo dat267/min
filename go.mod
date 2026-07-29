@@ -7,4 +7,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 )
 
-retract [v0.1.152, v0.1.165] // Auto-tagged versions, not valid releases
+retract [v0.0.0, v0.1.165] // All versions before v0.1.166 are invalid
