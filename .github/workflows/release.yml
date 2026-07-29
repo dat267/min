@@ -2,7 +2,8 @@ name: Release
 
 on:
   push:
-    branches: [main]
+    tags:
+      - "v*"
 
 permissions:
   contents: write
@@ -12,17 +13,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - uses: actions/setup-go@v5
         with:
           go-version: stable
-
-      - name: Compute version tag
-        run: |
-          count=$(git rev-list --count HEAD)
-          echo "tag=v0.1.${count}" >> $GITHUB_ENV
 
       - name: Build all platforms
         run: |
@@ -31,13 +25,13 @@ jobs:
               name="min-${goos}-${goarch}"
               [ "$goos" = "windows" ] && name="${name}.exe"
               GOOS=$goos GOARCH=$goarch \
-                go build -ldflags="-X main.version=${{ env.tag }}" -o "$name" .
+                go build -ldflags="-X main.version=${{ github.ref_name }}" -o "$name" .
             done
           done
 
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ env.tag }}
+          tag_name: ${{ github.ref_name }}
           files: min-*
           generate_release_notes: true
