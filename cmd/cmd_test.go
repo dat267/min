@@ -10,7 +10,8 @@ import (
 
 func TestInitCmd(t *testing.T) {
 	dir := t.TempDir()
-	oldWd, _ := os.Getwd(); _ = oldWd
+	oldWd, _ := os.Getwd()
+	_ = oldWd
 	_ = os.Chdir(dir)
 	defer func() { _ = os.Chdir(oldWd) }()
 
@@ -28,7 +29,8 @@ func TestInitCmd(t *testing.T) {
 
 func TestInitCmdExistingDir(t *testing.T) {
 	dir := t.TempDir()
-	oldWd, _ := os.Getwd(); _ = oldWd
+	oldWd, _ := os.Getwd()
+	_ = oldWd
 	_ = os.Chdir(dir)
 	defer func() { _ = os.Chdir(oldWd) }()
 
@@ -227,4 +229,3 @@ func TestCmdShowCmd(t *testing.T) {
 		t.Errorf("expected Commands: in output, got: %s", out)
 	}
 }
-

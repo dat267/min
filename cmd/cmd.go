@@ -9,7 +9,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-
 )
 
 type CommandGroup struct {
@@ -51,7 +50,7 @@ func (c *CmdAddCmd) Run() error {
 	// Collect structs that need to be written to outputPath (new intermediate
 	// parents whose own file doesn't exist yet, plus the leaf itself).
 	type pendingStruct struct {
-		name string // struct name, e.g. "DevCmd"
+		name   string // struct name, e.g. "DevCmd"
 		isLeaf bool
 	}
 	var pending []pendingStruct
@@ -286,5 +285,3 @@ func title(s string) string {
 	}
 	return strings.ToUpper(s[:1]) + s[1:]
 }
-
-

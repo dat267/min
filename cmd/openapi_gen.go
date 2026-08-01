@@ -21,9 +21,9 @@ type Openapi2GoCmd struct {
 }
 
 type openAPISpec struct {
-	OpenAPI string                            `json:"openapi" yaml:"openapi"`
-	Info    openAPIInfo                       `json:"info" yaml:"info"`
-	Paths   map[string]map[string]openAPIOp    `json:"paths" yaml:"paths"`
+	OpenAPI string                          `json:"openapi" yaml:"openapi"`
+	Info    openAPIInfo                     `json:"info" yaml:"info"`
+	Paths   map[string]map[string]openAPIOp `json:"paths" yaml:"paths"`
 }
 
 type openAPIInfo struct {
@@ -50,8 +50,8 @@ type openAPIReqBody struct {
 }
 
 type structCollector struct {
-	structs     map[string]string // structName -> struct definition code
-	usedNames   map[string]bool   // set of used struct names
+	structs   map[string]string // structName -> struct definition code
+	usedNames map[string]bool   // set of used struct names
 }
 
 func newStructCollector() *structCollector {
@@ -191,7 +191,9 @@ func (c *Openapi2GoCmd) generateGoSDK(spec *openAPISpec, pkgName string) string 
 	sb.WriteString("\tif httpClient == nil {\n")
 	sb.WriteString("\t\thttpClient = http.DefaultClient\n")
 	sb.WriteString("\t}\n")
-	sb.WriteString("\treturn &" + clientName + "{\n")
+	sb.WriteString("\treturn &")
+	sb.WriteString(clientName)
+	sb.WriteString("{\n")
 	sb.WriteString("\t\tBaseURL:        strings.TrimRight(baseURL, \"/\"),\n")
 	sb.WriteString("\t\tHTTPClient:     httpClient,\n")
 	sb.WriteString("\t\tRequestEditors: editors,\n")
@@ -283,9 +285,10 @@ func (c *Openapi2GoCmd) generateGoSDK(spec *openAPISpec, pkgName string) string 
 			var queryParamsList []openAPIParam
 
 			for _, p := range op.Parameters {
-				if p.In == "path" {
+				switch p.In {
+				case "path":
 					pathParams = append(pathParams, p)
-				} else if p.In == "query" {
+				case "query":
 					queryParamsList = append(queryParamsList, p)
 				}
 			}
@@ -393,7 +396,7 @@ func (c *Openapi2GoCmd) generateGoSDK(spec *openAPISpec, pkgName string) string 
 		}
 
 		sb.WriteString(fmt.Sprintf("func (c *%s) %s(%s) %s {\n", clientName, m.funcName, paramList, returnType))
-		
+
 		if len(m.pathParams) > 0 {
 			formattedPath := m.pathStr
 			var formatArgs []string
@@ -466,7 +469,9 @@ func (c *Openapi2GoCmd) generateGoSDK(spec *openAPISpec, pkgName string) string 
 		sb.WriteString("\t}\n\n")
 
 		sb.WriteString("\tif resp.StatusCode >= 400 {\n")
-		sb.WriteString("\t\treturn &Response[" + selectTypeName(m.respStruct, "[]byte") + "]{StatusCode: resp.StatusCode, Header: resp.Header, Body: respData}, fmt.Errorf(\"HTTP %d: %s\", resp.StatusCode, string(respData))\n")
+		sb.WriteString("\t\treturn &Response[")
+		sb.WriteString(selectTypeName(m.respStruct, "[]byte"))
+		sb.WriteString("]{StatusCode: resp.StatusCode, Header: resp.Header, Body: respData}, fmt.Errorf(\"HTTP %d: %s\", resp.StatusCode, string(respData))\n")
 		sb.WriteString("\t}\n\n")
 
 		if m.respStruct != "" {
@@ -513,7 +518,11 @@ func (c *Openapi2GoCmd) generateGoSDKTests(spec *openAPISpec, pkgName, clientNam
 		sort.Strings(methodKeys)
 		for _, methodStr := range methodKeys {
 			op := ops[methodStr]
-			methodTitle := strings.Title(strings.ToLower(methodStr))
+			lowerMethod := strings.ToLower(methodStr)
+			var methodTitle string
+			if len(lowerMethod) > 0 {
+				methodTitle = strings.ToUpper(lowerMethod[:1]) + lowerMethod[1:]
+			}
 			baseName := op.OperationID
 			if baseName == "" {
 				baseName = methodTitle + "_" + pathStr
@@ -522,9 +531,10 @@ func (c *Openapi2GoCmd) generateGoSDKTests(spec *openAPISpec, pkgName, clientNam
 			var pathParams []openAPIParam
 			hasQuery, hasBody := false, false
 			for _, p := range op.Parameters {
-				if p.In == "path" {
+				switch p.In {
+				case "path":
 					pathParams = append(pathParams, p)
-				} else if p.In == "query" {
+				case "query":
 					hasQuery = true
 				}
 			}
@@ -643,7 +653,6 @@ func (c *Openapi2GoCmd) generateGoSDKTests(spec *openAPISpec, pkgName, clientNam
 
 	return sb.String()
 }
-
 func (sc *structCollector) buildStructFromSchema(structName string, schema map[string]any) string {
 	props, ok := schema["properties"].(map[string]any)
 	if !ok || len(props) == 0 {
