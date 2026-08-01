@@ -162,7 +162,7 @@ func TestPublicAPIs_EndToEnd(t *testing.T) {
 			}
 
 			// Step 1: HAR -> OpenAPI YAML
-			harCmd := &cmd.HarConvertCmd{
+			harCmd := &cmd.Har2OpenapiCmd{
 				Input:  harPath,
 				Output: specPath,
 				Title:  tt.title,
@@ -172,7 +172,7 @@ func TestPublicAPIs_EndToEnd(t *testing.T) {
 			}
 
 			// Step 2: OpenAPI YAML -> Go SDK Client
-			genCmd := &cmd.OpenAPIGenCmd{
+			genCmd := &cmd.Openapi2GoCmd{
 				Input:  specPath,
 				Output: clientPath,
 				Pkg:    "client",
@@ -241,10 +241,10 @@ func TestPublicAPIs_RuntimeExecution(t *testing.T) {
 
 	_ = os.WriteFile(harPath, []byte(harJson), 0644)
 
-	harCmd := &cmd.HarConvertCmd{Input: harPath, Output: specPath, Title: "Petstore"}
+	harCmd := &cmd.Har2OpenapiCmd{Input: harPath, Output: specPath, Title: "Petstore"}
 	_ = harCmd.Run(context.Background())
 
-	genCmd := &cmd.OpenAPIGenCmd{Input: specPath, Output: clientPath, Pkg: "client"}
+	genCmd := &cmd.Openapi2GoCmd{Input: specPath, Output: clientPath, Pkg: "client"}
 	_ = genCmd.Run(context.Background())
 
 	codeBytes, _ := os.ReadFile(clientPath)

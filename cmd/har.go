@@ -12,7 +12,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-type HarConvertCmd struct {
+type Har2OpenapiCmd struct {
 	Input   string `help:"Path to HAR file" arg:""`
 	Output  string `help:"Output OpenAPI file path (json or yaml)" short:"o" default:""`
 	Title   string `help:"API title" default:"API Specification"`
@@ -70,7 +70,7 @@ type harContent struct {
 	Text     string `json:"text"`
 }
 
-func (c *HarConvertCmd) Run(ctx context.Context) error {
+func (c *Har2OpenapiCmd) Run(ctx context.Context) error {
 	data, err := os.ReadFile(c.Input)
 	if err != nil {
 		return fmt.Errorf("read HAR file: %w", err)
@@ -146,7 +146,7 @@ func (c *HarConvertCmd) Run(ctx context.Context) error {
 	return nil
 }
 
-func (c *HarConvertCmd) generateOpenAPI(entries []harEntry) map[string]any {
+func (c *Har2OpenapiCmd) generateOpenAPI(entries []harEntry) map[string]any {
 	paths := make(map[string]map[string]any)
 
 	for _, entry := range entries {

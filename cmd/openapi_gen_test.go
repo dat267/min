@@ -10,7 +10,7 @@ import (
 	"github.com/dat267/min/cmd"
 )
 
-func TestOpenAPIGenCmd(t *testing.T) {
+func TestOpenapi2GoCmd(t *testing.T) {
 	tmpDir := t.TempDir()
 	specPath := filepath.Join(tmpDir, "openapi.yaml")
 	outPath := filepath.Join(tmpDir, "client.go")
@@ -39,7 +39,7 @@ paths:
 		t.Fatalf("failed to write openapi spec: %v", err)
 	}
 
-	genCmd := &cmd.OpenAPIGenCmd{
+	genCmd := &cmd.Openapi2GoCmd{
 		Input:  specPath,
 		Output: outPath,
 		Pkg:    "client",
@@ -47,7 +47,7 @@ paths:
 	}
 
 	if err := genCmd.Run(context.Background()); err != nil {
-		t.Fatalf("OpenAPIGenCmd failed: %v", err)
+		t.Fatalf("Openapi2GoCmd failed: %v", err)
 	}
 
 	codeBytes, err := os.ReadFile(outPath)
@@ -70,7 +70,7 @@ paths:
 	}
 }
 
-func TestOpenAPIGenCmd_ParamsAndBodyStructs(t *testing.T) {
+func TestOpenapi2GoCmd_ParamsAndBodyStructs(t *testing.T) {
 	tmpDir := t.TempDir()
 	specPath := filepath.Join(tmpDir, "openapi.yaml")
 	outPath := filepath.Join(tmpDir, "client.go")
@@ -113,7 +113,7 @@ paths:
 		t.Fatalf("failed to write openapi spec: %v", err)
 	}
 
-	genCmd := &cmd.OpenAPIGenCmd{
+	genCmd := &cmd.Openapi2GoCmd{
 		Input:  specPath,
 		Output: outPath,
 		Pkg:    "client",
@@ -121,7 +121,7 @@ paths:
 	}
 
 	if err := genCmd.Run(context.Background()); err != nil {
-		t.Fatalf("OpenAPIGenCmd failed: %v", err)
+		t.Fatalf("Openapi2GoCmd failed: %v", err)
 	}
 
 	codeBytes, err := os.ReadFile(outPath)
@@ -130,7 +130,7 @@ paths:
 	}
 
 	code := string(codeBytes)
-	
+
 	// Check query parameter struct generation
 	if !strings.Contains(code, "type GetV1OrgsOrgIdUsersParams struct") {
 		t.Errorf("missing GetV1OrgsOrgIdUsersParams struct in generated code:\n%s", code)
@@ -156,7 +156,7 @@ paths:
 	}
 }
 
-func TestOpenAPIGenCmd_AutoPkgFromParentDir(t *testing.T) {
+func TestOpenapi2GoCmd_AutoPkgFromParentDir(t *testing.T) {
 	tmpDir := t.TempDir()
 	customPkgDir := filepath.Join(tmpDir, "my_custom_sdk")
 	outPath := filepath.Join(customPkgDir, "client.go")
@@ -176,7 +176,7 @@ paths:
 	}
 
 	// Omit Pkg so it defaults to parent directory name ("my_custom_sdk" -> "mycustomsdk")
-	genCmd := &cmd.OpenAPIGenCmd{
+	genCmd := &cmd.Openapi2GoCmd{
 		Input:  specPath,
 		Output: outPath,
 	}
@@ -196,7 +196,7 @@ paths:
 	}
 }
 
-func TestOpenAPIGenCmd_DetectPeerPackageName(t *testing.T) {
+func TestOpenapi2GoCmd_DetectPeerPackageName(t *testing.T) {
 	tmpDir := t.TempDir()
 	peerFile := filepath.Join(tmpDir, "helper.go")
 	outPath := filepath.Join(tmpDir, "client.go")
@@ -221,7 +221,7 @@ paths:
 	}
 
 	// Omit Pkg so it auto-detects existingpkg from peer helper.go
-	genCmd := &cmd.OpenAPIGenCmd{
+	genCmd := &cmd.Openapi2GoCmd{
 		Input:  specPath,
 		Output: outPath,
 	}
@@ -241,7 +241,7 @@ paths:
 	}
 }
 
-func TestOpenAPIGenCmd_RequestEditors(t *testing.T) {
+func TestOpenapi2GoCmd_RequestEditors(t *testing.T) {
 	tmpDir := t.TempDir()
 	outPath := filepath.Join(tmpDir, "client.go")
 	specPath := filepath.Join(tmpDir, "openapi.yaml")
@@ -259,7 +259,7 @@ paths:
 		t.Fatalf("failed to write spec: %v", err)
 	}
 
-	genCmd := &cmd.OpenAPIGenCmd{
+	genCmd := &cmd.Openapi2GoCmd{
 		Input:  specPath,
 		Output: outPath,
 		Pkg:    "client",
@@ -283,7 +283,7 @@ paths:
 	}
 }
 
-func TestOpenAPIGenCmd_ClientInterface(t *testing.T) {
+func TestOpenapi2GoCmd_ClientInterface(t *testing.T) {
 	tmpDir := t.TempDir()
 	outPath := filepath.Join(tmpDir, "client.go")
 	specPath := filepath.Join(tmpDir, "openapi.yaml")
@@ -314,7 +314,7 @@ paths:
 		t.Fatalf("failed to write spec: %v", err)
 	}
 
-	genCmd := &cmd.OpenAPIGenCmd{Input: specPath, Output: outPath, Pkg: "client", Client: "Client"}
+	genCmd := &cmd.Openapi2GoCmd{Input: specPath, Output: outPath, Pkg: "client", Client: "Client"}
 	if err := genCmd.Run(context.Background()); err != nil {
 		t.Fatalf("genCmd failed: %v", err)
 	}
@@ -335,8 +335,3 @@ paths:
 	}
 	// Concrete *Client must satisfy the interface (verified by go build in public API tests)
 }
-
-
-
-
-

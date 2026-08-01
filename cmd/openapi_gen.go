@@ -13,7 +13,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-type OpenAPIGenCmd struct {
+type Openapi2GoCmd struct {
 	Input  string `help:"Path to OpenAPI spec file (JSON or YAML)" arg:""`
 	Output string `help:"Output Go SDK package directory or file path" short:"o" default:"client.go"`
 	Pkg    string `help:"Go package name (defaults to parent directory name of output file)" default:""`
@@ -76,7 +76,7 @@ func (sc *structCollector) getUniqueName(baseName string) string {
 	}
 }
 
-func (c *OpenAPIGenCmd) Run(ctx context.Context) error {
+func (c *Openapi2GoCmd) Run(ctx context.Context) error {
 	data, err := os.ReadFile(c.Input)
 	if err != nil {
 		return fmt.Errorf("read OpenAPI file: %w", err)
@@ -133,7 +133,7 @@ func (c *OpenAPIGenCmd) Run(ctx context.Context) error {
 	return nil
 }
 
-func (c *OpenAPIGenCmd) generateGoSDK(spec *openAPISpec, pkgName string) string {
+func (c *Openapi2GoCmd) generateGoSDK(spec *openAPISpec, pkgName string) string {
 	var sb strings.Builder
 
 	if pkgName == "" {
@@ -485,7 +485,7 @@ func (c *OpenAPIGenCmd) generateGoSDK(spec *openAPISpec, pkgName string) string 
 	return sb.String()
 }
 
-func (c *OpenAPIGenCmd) generateGoSDKTests(spec *openAPISpec, pkgName, clientName string) string {
+func (c *Openapi2GoCmd) generateGoSDKTests(spec *openAPISpec, pkgName, clientName string) string {
 	var sb strings.Builder
 
 	type testMethod struct {

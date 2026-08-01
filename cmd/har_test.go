@@ -47,7 +47,7 @@ func TestHarCmd(t *testing.T) {
 	}
 
 	// Test JSON output
-	harJsonCmd := &cmd.HarConvertCmd{
+	harJsonCmd := &cmd.Har2OpenapiCmd{
 		Input:  harPath,
 		Output: outJson,
 		Title:  "Test API",
@@ -65,7 +65,7 @@ func TestHarCmd(t *testing.T) {
 	}
 
 	// Test YAML output
-	harYamlCmd := &cmd.HarConvertCmd{
+	harYamlCmd := &cmd.Har2OpenapiCmd{
 		Input:  harPath,
 		Output: outYaml,
 		Title:  "Test API",
@@ -118,13 +118,13 @@ func TestHarCmdIncrementalMerge(t *testing.T) {
 	}
 
 	// Step 1: Run har1 -> openapi.yaml
-	cmd1 := &cmd.HarConvertCmd{Input: har1Path, Output: outYaml, Title: "Test API"}
+	cmd1 := &cmd.Har2OpenapiCmd{Input: har1Path, Output: outYaml, Title: "Test API"}
 	if err := cmd1.Run(context.Background()); err != nil {
 		t.Fatalf("cmd1 failed: %v", err)
 	}
 
 	// Step 2: Run har2 -> openapi.yaml (should merge /v1/posts alongside existing /v1/users)
-	cmd2 := &cmd.HarConvertCmd{Input: har2Path, Output: outYaml, Title: "Test API"}
+	cmd2 := &cmd.Har2OpenapiCmd{Input: har2Path, Output: outYaml, Title: "Test API"}
 	if err := cmd2.Run(context.Background()); err != nil {
 		t.Fatalf("cmd2 failed: %v", err)
 	}
@@ -168,7 +168,7 @@ func TestHarCmdFiltering(t *testing.T) {
 		t.Fatalf("failed to write test HAR: %v", err)
 	}
 
-	filterCmd := &cmd.HarConvertCmd{
+	filterCmd := &cmd.Har2OpenapiCmd{
 		Input:   harPath,
 		Output:  outYaml,
 		Host:    "api.example.com",
@@ -196,5 +196,3 @@ func TestHarCmdFiltering(t *testing.T) {
 		t.Errorf("other.com request should have been filtered out by host")
 	}
 }
-
-
