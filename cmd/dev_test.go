@@ -1,4 +1,4 @@
-package cmd_test
+package cmd
 
 import (
 	"context"
@@ -11,8 +11,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/dat267/min/cmd"
 )
 
 func TestOpenapi2GoCmd(t *testing.T) {
@@ -44,7 +42,7 @@ paths:
 		t.Fatalf("failed to write openapi spec: %v", err)
 	}
 
-	genCmd := &cmd.Openapi2GoCmd{
+	genCmd := &Openapi2GoCmd{
 		Input:  specPath,
 		Output: outPath,
 		Pkg:    "client",
@@ -118,7 +116,7 @@ paths:
 		t.Fatalf("failed to write openapi spec: %v", err)
 	}
 
-	genCmd := &cmd.Openapi2GoCmd{
+	genCmd := &Openapi2GoCmd{
 		Input:  specPath,
 		Output: outPath,
 		Pkg:    "client",
@@ -181,7 +179,7 @@ paths:
 	}
 
 	// Omit Pkg so it defaults to parent directory name ("my_custom_sdk" -> "my_custom_sdk")
-	genCmd := &cmd.Openapi2GoCmd{
+	genCmd := &Openapi2GoCmd{
 		Input:  specPath,
 		Output: outPath,
 	}
@@ -226,7 +224,7 @@ paths:
 	}
 
 	// Omit Pkg so it auto-detects existingpkg from peer helper.go
-	genCmd := &cmd.Openapi2GoCmd{
+	genCmd := &Openapi2GoCmd{
 		Input:  specPath,
 		Output: outPath,
 	}
@@ -264,7 +262,7 @@ paths:
 		t.Fatalf("failed to write spec: %v", err)
 	}
 
-	genCmd := &cmd.Openapi2GoCmd{
+	genCmd := &Openapi2GoCmd{
 		Input:  specPath,
 		Output: outPath,
 		Pkg:    "client",
@@ -319,7 +317,7 @@ paths:
 		t.Fatalf("failed to write spec: %v", err)
 	}
 
-	genCmd := &cmd.Openapi2GoCmd{Input: specPath, Output: outPath, Pkg: "client", Client: "Client"}
+	genCmd := &Openapi2GoCmd{Input: specPath, Output: outPath, Pkg: "client", Client: "Client"}
 	if err := genCmd.Run(context.Background()); err != nil {
 		t.Fatalf("genCmd failed: %v", err)
 	}
@@ -377,7 +375,7 @@ func TestHarCmd(t *testing.T) {
 	}
 
 	// Test JSON output
-	harJsonCmd := &cmd.Har2OpenapiCmd{
+	harJsonCmd := &Har2OpenapiCmd{
 		Input:  harPath,
 		Output: outJson,
 		Title:  "Test API",
@@ -423,7 +421,7 @@ func TestHarCmd(t *testing.T) {
 	}
 
 	// Test YAML output
-	harYamlCmd := &cmd.Har2OpenapiCmd{
+	harYamlCmd := &Har2OpenapiCmd{
 		Input:  harPath,
 		Output: outYaml,
 		Title:  "Test API",
@@ -476,13 +474,13 @@ func TestHarCmdIncrementalMerge(t *testing.T) {
 	}
 
 	// Step 1: Run har1 -> openapi.yaml
-	cmd1 := &cmd.Har2OpenapiCmd{Input: har1Path, Output: outYaml, Title: "Test API"}
+	cmd1 := &Har2OpenapiCmd{Input: har1Path, Output: outYaml, Title: "Test API"}
 	if err := cmd1.Run(context.Background()); err != nil {
 		t.Fatalf("cmd1 failed: %v", err)
 	}
 
 	// Step 2: Run har2 -> openapi.yaml (should merge /v1/posts alongside existing /v1/users)
-	cmd2 := &cmd.Har2OpenapiCmd{Input: har2Path, Output: outYaml, Title: "Test API"}
+	cmd2 := &Har2OpenapiCmd{Input: har2Path, Output: outYaml, Title: "Test API"}
 	if err := cmd2.Run(context.Background()); err != nil {
 		t.Fatalf("cmd2 failed: %v", err)
 	}
@@ -526,7 +524,7 @@ func TestHarCmdFiltering(t *testing.T) {
 		t.Fatalf("failed to write test HAR: %v", err)
 	}
 
-	filterCmd := &cmd.Har2OpenapiCmd{
+	filterCmd := &Har2OpenapiCmd{
 		Input:   harPath,
 		Output:  outYaml,
 		Host:    "api.example.com",
@@ -701,7 +699,7 @@ func TestPublicAPIs_EndToEnd(t *testing.T) {
 			}
 
 			// Step 1: HAR -> OpenAPI YAML
-			harCmd := &cmd.Har2OpenapiCmd{
+			harCmd := &Har2OpenapiCmd{
 				Input:  harPath,
 				Output: specPath,
 				Title:  tt.title,
@@ -711,7 +709,7 @@ func TestPublicAPIs_EndToEnd(t *testing.T) {
 			}
 
 			// Step 2: OpenAPI YAML -> Go SDK Client
-			genCmd := &cmd.Openapi2GoCmd{
+			genCmd := &Openapi2GoCmd{
 				Input:  specPath,
 				Output: clientPath,
 				Pkg:    "client",
@@ -780,12 +778,12 @@ func TestPublicAPIs_RuntimeExecution(t *testing.T) {
 		t.Fatalf("failed to write har: %v", err)
 	}
 
-	harCmd := &cmd.Har2OpenapiCmd{Input: harPath, Output: specPath, Title: "Petstore"}
+	harCmd := &Har2OpenapiCmd{Input: harPath, Output: specPath, Title: "Petstore"}
 	if err := harCmd.Run(context.Background()); err != nil {
 		t.Fatalf("har convert failed: %v", err)
 	}
 
-	genCmd := &cmd.Openapi2GoCmd{Input: specPath, Output: clientPath, Pkg: "client"}
+	genCmd := &Openapi2GoCmd{Input: specPath, Output: clientPath, Pkg: "client"}
 	if err := genCmd.Run(context.Background()); err != nil {
 		t.Fatalf("openapi gen failed: %v", err)
 	}
