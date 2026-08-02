@@ -1,21 +1,25 @@
 package cmd
 
 import (
+	"bytes"
 	"fmt"
 	"go/ast"
 	"go/parser"
+	"go/printer"
 	"go/token"
 	"os"
 	"path/filepath"
 	"strings"
 )
 
+// AstCmdGroup encapsulates all AST-related subcommands.
 type AstCmdGroup struct {
 	Scan  AstScanCmd  `cmd:"" help:"Scan Go files, strip bodies, keep signatures"`
 	Types AstTypesCmd `cmd:"" help:"Show types only (structs, interfaces, func signatures)"`
 	Fn    AstFnCmd    `cmd:"" help:"Extract context for a single function"`
 }
 
+// AstScanCmd scans Go files and prints top-level declarations (stripping function bodies).
 type AstScanCmd struct {
 	Path string `help:"File or directory to scan" arg:"" default:"."`
 }
@@ -24,6 +28,7 @@ func (c *AstScanCmd) Run() error {
 	return walkPath(c.Path, printScanned)
 }
 
+// AstTypesCmd scans Go files and prints only type declarations.
 type AstTypesCmd struct {
 	Path string `help:"File or directory to scan" arg:"" default:"."`
 }
@@ -32,10 +37,18 @@ func (c *AstTypesCmd) Run() error {
 	return walkPath(c.Path, printTypes)
 }
 
+// AstFnCmd extracts the context, references, and call sites for a specific function/method.
 type AstFnCmd struct {
-	Func string `arg:"" help:"Name of the function to search for."`
-	Path string `arg:"" help:"Path to file or directory."`
+	Func string `arg:"" help:"Name of the function to search for (e.g. 'MyFunc' or 'MyStruct.MyMethod')."`
+	Path string `arg:"" help:"Path to file or directory." default:"."`
 	Type string `name:"type" help:"Optional receiver type name filter."`
+}
+
+type parsedFile struct {
+	path    string
+	fset    *token.FileSet
+	file    *ast.File
+	content []byte
 }
 
 type targetMatch struct {
@@ -43,18 +56,11 @@ type targetMatch struct {
 	file *parsedFile
 }
 
-func receiverTypeName(fd *ast.FuncDecl) string {
-	if fd.Recv == nil || len(fd.Recv.List) == 0 {
-		return ""
-	}
-	typeExpr := fd.Recv.List[0].Type
-	if star, ok := typeExpr.(*ast.StarExpr); ok {
-		typeExpr = star.X
-	}
-	if id, ok := typeExpr.(*ast.Ident); ok {
-		return id.Name
-	}
-	return ""
+type helperInfo struct {
+	decl    *ast.FuncDecl
+	fset    *token.FileSet
+	path    string
+	content []byte
 }
 
 func (c *AstFnCmd) Run() error {
@@ -154,7 +160,7 @@ func (c *AstFnCmd) Run() error {
 		for _, h := range helpers {
 			fmt.Printf("// %s\n", h.path)
 			decl := *h.decl
-			decl.Body = nil
+			decl.Body = nil // Strip body for helpers
 			nodeSource(h.content, h.fset, &decl)
 		}
 		fmt.Println()
@@ -192,13 +198,6 @@ func (c *AstFnCmd) Run() error {
 	return nil
 }
 
-type parsedFile struct {
-	path    string
-	fset    *token.FileSet
-	file    *ast.File
-	content []byte
-}
-
 func readFile(path string) []byte {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -207,6 +206,21 @@ func readFile(path string) []byte {
 	return data
 }
 
+func receiverTypeName(fd *ast.FuncDecl) string {
+	if fd.Recv == nil || len(fd.Recv.List) == 0 {
+		return ""
+	}
+	typeExpr := fd.Recv.List[0].Type
+	if star, ok := typeExpr.(*ast.StarExpr); ok {
+		typeExpr = star.X
+	}
+	if id, ok := typeExpr.(*ast.Ident); ok {
+		return id.Name
+	}
+	return ""
+}
+
+// nodeSource prints the exact source code for an AST node directly from the file bytes.
 func nodeSource(content []byte, fset *token.FileSet, n ast.Node) {
 	start := fset.Position(n.Pos()).Offset
 	end := fset.Position(n.End()).Offset
@@ -216,6 +230,7 @@ func nodeSource(content []byte, fset *token.FileSet, n ast.Node) {
 	fmt.Println(string(content[start:end]))
 }
 
+// nodeSurround prints the node alongside N lines of surrounding context.
 func nodeSurround(content []byte, fset *token.FileSet, n ast.Node, lines int) {
 	startLine := fset.Position(n.Pos()).Line - lines
 	if startLine < 1 {
@@ -260,13 +275,6 @@ func collectHelpers(fd *ast.FuncDecl, parsed []*parsedFile) []helperInfo {
 	return helpers
 }
 
-type helperInfo struct {
-	decl    *ast.FuncDecl
-	fset    *token.FileSet
-	path    string
-	content []byte
-}
-
 func extractCalledName(e ast.Expr) string {
 	switch t := e.(type) {
 	case *ast.Ident:
@@ -294,6 +302,7 @@ func collectTypeRefs(fd *ast.FuncDecl) map[string]bool {
 		if len(id.Name) == 0 || (id.Name[0] >= 'a' && id.Name[0] <= 'z') {
 			return true
 		}
+		// Ignore standard Go built-in types
 		switch id.Name {
 		case "bool", "int", "int8", "int16", "int32", "int64",
 			"uint", "uint8", "uint16", "uint32", "uint64",
@@ -327,13 +336,13 @@ func walkPath(path string, fn func(*ast.File, *token.FileSet) error) error {
 			if err != nil || fi.IsDir() || !strings.HasSuffix(p, ".go") {
 				return err
 			}
-			return printFile(p, fn)
+			return processFile(p, fn)
 		})
 	}
-	return printFile(path, fn)
+	return processFile(path, fn)
 }
 
-func printFile(path string, fn func(*ast.File, *token.FileSet) error) error {
+func processFile(path string, fn func(*ast.File, *token.FileSet) error) error {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
 	if err != nil {
@@ -344,153 +353,49 @@ func printFile(path string, fn func(*ast.File, *token.FileSet) error) error {
 	return fn(f, fset)
 }
 
+// printNode safely prints any AST node as valid Go syntax.
+func printNode(fset *token.FileSet, node any) {
+	var buf bytes.Buffer
+	err := printer.Fprint(&buf, fset, node)
+	if err == nil {
+		fmt.Println(buf.String())
+	}
+}
+
+// printScanned outputs structures and function signatures (strips body).
 func printScanned(f *ast.File, fset *token.FileSet) error {
 	for _, d := range f.Decls {
 		switch decl := d.(type) {
 		case *ast.GenDecl:
-			printGenDecl(decl, fset)
+			printNode(fset, decl)
+			fmt.Println()
 		case *ast.FuncDecl:
-			printFuncDecl(decl)
+			// Clone the func decl and strip the body for signature-only printing
+			copyDecl := *decl
+			copyDecl.Body = nil
+			printNode(fset, &copyDecl)
+			fmt.Println()
 		}
 	}
 	return nil
 }
 
+// printTypes outputs ONLY type declarations (structs, interfaces, typedefs).
 func printTypes(f *ast.File, fset *token.FileSet) error {
 	for _, d := range f.Decls {
 		if gen, ok := d.(*ast.GenDecl); ok {
+			hasType := false
 			for _, spec := range gen.Specs {
-				if ts, ok := spec.(*ast.TypeSpec); ok {
-					printTypeSpec(ts, fset)
+				if _, isType := spec.(*ast.TypeSpec); isType {
+					hasType = true
+					break
 				}
+			}
+			if hasType {
+				printNode(fset, gen)
+				fmt.Println()
 			}
 		}
 	}
 	return nil
-}
-
-func printGenDecl(decl *ast.GenDecl, fset *token.FileSet) {
-	for _, spec := range decl.Specs {
-		switch s := spec.(type) {
-		case *ast.ImportSpec:
-			if s.Name != nil {
-				fmt.Printf("import %s %s\n", s.Name.Name, s.Path.Value)
-			} else {
-				fmt.Printf("import %s\n", s.Path.Value)
-			}
-		case *ast.TypeSpec:
-			printTypeSpec(s, fset)
-		case *ast.ValueSpec:
-			if len(s.Names) > 0 {
-				typ := "?"
-				if s.Type != nil {
-					typ = exprString(s.Type)
-				}
-				for _, n := range s.Names {
-					fmt.Printf("var %s %s\n", n.Name, typ)
-				}
-			}
-		}
-	}
-}
-
-func printTypeSpec(ts *ast.TypeSpec, _ *token.FileSet) {
-	switch t := ts.Type.(type) {
-	case *ast.StructType:
-		fmt.Printf("type %s struct {\n", ts.Name.Name)
-		for _, f := range t.Fields.List {
-			tag := ""
-			if f.Tag != nil {
-				tag = " " + f.Tag.Value
-			}
-			for _, n := range f.Names {
-				fmt.Printf("\t%s %s%s\n", n.Name, exprString(f.Type), tag)
-			}
-		}
-		fmt.Printf("}\n\n")
-	case *ast.InterfaceType:
-		fmt.Printf("type %s interface {\n", ts.Name.Name)
-		for _, m := range t.Methods.List {
-			if len(m.Names) > 0 {
-				fmt.Printf("\t%s%s\n", m.Names[0].Name, exprString(m.Type))
-			}
-		}
-		fmt.Printf("}\n\n")
-	default:
-		fmt.Printf("type %s %s\n\n", ts.Name.Name, exprString(ts.Type))
-	}
-}
-
-func printFuncDecl(decl *ast.FuncDecl) {
-	recv := ""
-	if decl.Recv != nil && len(decl.Recv.List) > 0 {
-		r := decl.Recv.List[0]
-		recv = "(" + exprString(r.Type) + ") "
-	}
-	params := ""
-	if decl.Type.Params != nil {
-		params = fieldList(decl.Type.Params)
-	}
-	results := ""
-	if decl.Type.Results != nil {
-		results = " " + fieldList(decl.Type.Results)
-	}
-	fmt.Printf("func %s%s(%s)%s\n\n", recv, decl.Name.Name, params, results)
-}
-
-func fieldList(fl *ast.FieldList) string {
-	var parts []string
-	for _, f := range fl.List {
-		typ := exprString(f.Type)
-		if len(f.Names) > 0 {
-			for _, n := range f.Names {
-				parts = append(parts, n.Name+" "+typ)
-			}
-		} else {
-			parts = append(parts, typ)
-		}
-	}
-	return strings.Join(parts, ", ")
-}
-
-func exprString(e ast.Expr) string {
-	switch t := e.(type) {
-	case *ast.Ident:
-		return t.Name
-	case *ast.StarExpr:
-		return "*" + exprString(t.X)
-	case *ast.SelectorExpr:
-		return exprString(t.X) + "." + t.Sel.Name
-	case *ast.ArrayType:
-		if t.Len == nil {
-			return "[]" + exprString(t.Elt)
-		}
-		return "[" + exprString(t.Len) + "]" + exprString(t.Elt)
-	case *ast.MapType:
-		return "map[" + exprString(t.Key) + "]" + exprString(t.Value)
-	case *ast.Ellipsis:
-		return "..." + exprString(t.Elt)
-	case *ast.InterfaceType:
-		return "interface{}"
-	case *ast.FuncType:
-		return "func" + fieldListExpr(t)
-	case *ast.ChanType:
-		return "chan " + exprString(t.Value)
-	case *ast.BasicLit:
-		return t.Value
-	default:
-		return fmt.Sprintf("%T", e)
-	}
-}
-
-func fieldListExpr(ft *ast.FuncType) string {
-	params := ""
-	if ft.Params != nil {
-		params = "(" + fieldList(ft.Params) + ")"
-	}
-	results := ""
-	if ft.Results != nil {
-		results = " " + fieldList(ft.Results)
-	}
-	return params + results
 }

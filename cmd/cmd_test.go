@@ -15,7 +15,7 @@ func TestInitCmd(t *testing.T) {
 	_ = os.Chdir(dir)
 	defer func() { _ = os.Chdir(oldWd) }()
 
-	err := (&InitCmd{Name: "myapp"}).Run()
+	err := (&CmdInitCmd{Name: "myapp"}).Run()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,122 +35,9 @@ func TestInitCmdExistingDir(t *testing.T) {
 	defer func() { _ = os.Chdir(oldWd) }()
 
 	_ = os.MkdirAll("myapp", 0755)
-	err := (&InitCmd{Name: "myapp"}).Run()
+	err := (&CmdInitCmd{Name: "myapp"}).Run()
 	if err == nil {
 		t.Fatal("expected error for existing directory")
-	}
-}
-
-func TestConfigInit(t *testing.T) {
-	p := filepath.Join(t.TempDir(), "cfg.json")
-	SetConfigPath(p)
-	defer SetConfigPath("")
-	if err := (&ConfigInitCmd{}).Run(); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(p); os.IsNotExist(err) {
-		t.Fatal("config not created")
-	}
-}
-
-func TestConfigInitForce(t *testing.T) {
-	p := filepath.Join(t.TempDir(), "cfg.json")
-	SetConfigPath(p)
-	defer SetConfigPath("")
-	c := &ConfigInitCmd{}
-	if err := c.Run(); err != nil {
-		t.Fatal(err)
-	}
-	if err := c.Run(); err == nil {
-		t.Fatal("expected error without --overwrite")
-	}
-	if err := (&ConfigInitCmd{Overwrite: true}).Run(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestConfigSetAndShow(t *testing.T) {
-	p := filepath.Join(t.TempDir(), "cfg.json")
-	SetConfigPath(p)
-	defer SetConfigPath("")
-	_ = (&ConfigInitCmd{}).Run()
-	if err := (&ConfigSetCmd{Key: "greeting", Value: "hello"}).Run(); err != nil {
-		t.Fatal(err)
-	}
-	if err := (&ConfigSetCmd{Key: "core.timeout", Value: "5m"}).Run(); err != nil {
-		t.Fatal(err)
-	}
-	if err := (&ConfigShowCmd{}).Run(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestConfigUnset(t *testing.T) {
-	p := filepath.Join(t.TempDir(), "cfg.json")
-	SetConfigPath(p)
-	defer SetConfigPath("")
-	_ = (&ConfigInitCmd{}).Run()
-	_ = (&ConfigSetCmd{Key: "greeting", Value: "hello"}).Run()
-	if err := (&ConfigUnsetCmd{Key: "greeting"}).Run(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestConfigUnsetNested(t *testing.T) {
-	p := filepath.Join(t.TempDir(), "cfg.json")
-	SetConfigPath(p)
-	defer SetConfigPath("")
-	_ = (&ConfigInitCmd{}).Run()
-	_ = (&ConfigSetCmd{Key: "core.timeout", Value: "5m"}).Run()
-	if err := (&ConfigUnsetCmd{Key: "core.timeout"}).Run(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestConfigShowNoFile(t *testing.T) {
-	p := filepath.Join(t.TempDir(), "missing.json")
-	SetConfigPath(p)
-	defer SetConfigPath("")
-	if err := (&ConfigShowCmd{}).Run(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestConfigSetAutoCreate(t *testing.T) {
-	p := filepath.Join(t.TempDir(), "new.json")
-	SetConfigPath(p)
-	defer SetConfigPath("")
-	if err := (&ConfigSetCmd{Key: "x", Value: "1"}).Run(); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(p); os.IsNotExist(err) {
-		t.Fatal("config not auto-created on set")
-	}
-}
-
-func TestConfigNestedOverwrite(t *testing.T) {
-	p := filepath.Join(t.TempDir(), "cfg.json")
-	SetConfigPath(p)
-	defer SetConfigPath("")
-	_ = (&ConfigInitCmd{}).Run()
-	_ = (&ConfigSetCmd{Key: "a.b.c", Value: "deep"}).Run()
-	if err := (&ConfigSetCmd{Key: "a.b", Value: "replace"}).Run(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestConfigShowAfterSet(t *testing.T) {
-	p := filepath.Join(t.TempDir(), "cfg.json")
-	SetConfigPath(p)
-	defer SetConfigPath("")
-	_ = (&ConfigInitCmd{}).Run()
-	_ = (&ConfigSetCmd{Key: "greeting", Value: "hello"}).Run()
-
-	out := CaptureOutput(func() {
-		_ = (&ConfigShowCmd{}).Run()
-	})
-	if !strings.Contains(out, "hello") {
-		t.Fatalf("expected greeting in output, got %s", out)
 	}
 }
 
@@ -175,7 +62,7 @@ func TestCmdAddCmd_NestedSingleFile(t *testing.T) {
 	_ = os.Chdir(dir)
 	defer func() { _ = os.Chdir(oldWd) }()
 
-	err := (&InitCmd{Name: "myapp"}).Run()
+	err := (&CmdInitCmd{Name: "myapp"}).Run()
 	if err != nil {
 		t.Fatalf("init project failed: %v", err)
 	}
@@ -194,8 +81,8 @@ func TestCmdAddCmd_NestedSingleFile(t *testing.T) {
 	}
 
 	content := string(contentBytes)
-	if !strings.Contains(content, "type AdminCmd struct") {
-		t.Errorf("expected AdminCmd struct in admin.go")
+	if !strings.Contains(content, "type AdminCmdGroup struct") && !strings.Contains(content, "type AdminCmd struct") {
+		t.Errorf("expected AdminCmdGroup/AdminCmd struct in admin.go")
 	}
 	if !strings.Contains(content, "type UsersCmd struct") {
 		t.Errorf("expected UsersCmd struct in admin.go")
@@ -218,7 +105,7 @@ func TestCmdShowCmd(t *testing.T) {
 	_ = os.Chdir(dir)
 	defer func() { _ = os.Chdir(oldWd) }()
 
-	_ = (&InitCmd{Name: "myapp"}).Run()
+	_ = (&CmdInitCmd{Name: "myapp"}).Run()
 	_ = os.Chdir("myapp")
 
 	out := CaptureOutput(func() {

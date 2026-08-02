@@ -20,7 +20,6 @@ type CLI struct {
 
 	Version VersionCmd     `cmd:"" help:"Show version"`
 	Ast     AstCmdGroup    `cmd:"" help:"Parse Go AST for AI context"`
-	Init    InitCmd        `cmd:"" help:"Initialize a new CLI project"`
 	Cmd     CmdGroup       `cmd:"" help:"Manage commands"`
 	Config  ConfigCmdGroup `cmd:"" help:"Manage application configuration"`
 }
