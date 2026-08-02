@@ -93,6 +93,10 @@ min cmd add hello
 
 # Use dot notation for nested commands
 min cmd add admin.users.list
+
+# Create a bare command group (add leaf commands under it later)
+min cmd add --group admin
+min cmd add admin.users.list
 ```
 
 Each command is a struct with a `Run() error` method. Add flags as struct fields.

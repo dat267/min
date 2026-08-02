@@ -72,12 +72,13 @@ func (c *CmdInitCmd) Run() error {
 }
 
 type CmdAddCmd struct {
-	Name string `help:"Command name (use dots for nesting, e.g. admin.users.create)" arg:""`
-	Desc string `help:"Description for the command"`
+	Name  string `help:"Command name (use dots for nesting, e.g. admin.users.create)" arg:""`
+	Desc  string `help:"Description for the command"`
+	Group bool   `help:"Create a command group instead of a leaf command"`
 }
 
 func (c *CmdAddCmd) Run() error {
-	return scaffold.AddCommand(c.Name, c.Desc)
+	return scaffold.AddCommand(c.Name, c.Desc, c.Group)
 }
 
 type CmdShowCmd struct{}

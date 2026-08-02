@@ -202,3 +202,110 @@ func TestCmdAddCmd_InvalidIdentifiers(t *testing.T) {
 		parseAll(t)
 	}
 }
+
+func TestCmdAddCmd_GroupFlag(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	if err := (&CmdInitCmd{Name: "myapp"}).Run(); err != nil {
+		t.Fatalf("init project failed: %v", err)
+	}
+	t.Chdir("myapp")
+
+	if err := (&CmdAddCmd{Name: "z", Group: true}).Run(); err != nil {
+		t.Fatalf("cmd add --group z failed: %v", err)
+	}
+
+	zData, err := os.ReadFile(filepath.Join("cmd", "z.go"))
+	if err != nil {
+		t.Fatalf("expected cmd/z.go: %v", err)
+	}
+	zContent := string(zData)
+	if !strings.Contains(zContent, "type ZCmd struct {") {
+		t.Errorf("expected ZCmd struct in cmd/z.go:\n%s", zContent)
+	}
+	if strings.Contains(zContent, "func (c *ZCmd) Run()") {
+		t.Errorf("group ZCmd must not have a Run method:\n%s", zContent)
+	}
+
+	cmdData, err := os.ReadFile(filepath.Join("cmd", "cmd.go"))
+	if err != nil {
+		t.Fatalf("read cmd.go: %v", err)
+	}
+	if !strings.Contains(string(cmdData), `Z ZCmd `+"`"+`cmd:"" help:"z command group"`+"`") {
+		t.Errorf("expected registered group field with help \"z command group\":\n%s", cmdData)
+	}
+
+	// A leaf can now be added under the group.
+	if err := (&CmdAddCmd{Name: "z.s"}).Run(); err != nil {
+		t.Fatalf("cmd add z.s under group z failed: %v", err)
+	}
+
+	// Re-adding an existing group is a silent no-op success.
+	if err := (&CmdAddCmd{Name: "z", Group: true}).Run(); err != nil {
+		t.Fatalf("re-adding existing group z failed: %v", err)
+	}
+}
+
+func TestCmdAddCmd_GroupFlagErrorsOnLeaf(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	if err := (&CmdInitCmd{Name: "myapp"}).Run(); err != nil {
+		t.Fatalf("init project failed: %v", err)
+	}
+	t.Chdir("myapp")
+
+	if err := (&CmdAddCmd{Name: "z"}).Run(); err != nil {
+		t.Fatalf("cmd add z failed: %v", err)
+	}
+	err := (&CmdAddCmd{Name: "z", Group: true}).Run()
+	if err == nil {
+		t.Fatal("expected error adding group over an existing leaf")
+	}
+	if !strings.Contains(err.Error(), "cannot add group") {
+		t.Errorf("expected 'cannot add group' error, got: %v", err)
+	}
+}
+
+func TestCmdAddCmd_GroupFlagNestedAndDesc(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	if err := (&CmdInitCmd{Name: "myapp"}).Run(); err != nil {
+		t.Fatalf("init project failed: %v", err)
+	}
+	t.Chdir("myapp")
+
+	if err := (&CmdAddCmd{Name: "a.b", Group: true, Desc: "B ops"}).Run(); err != nil {
+		t.Fatalf("cmd add --group a.b failed: %v", err)
+	}
+
+	aData, err := os.ReadFile(filepath.Join("cmd", "a.go"))
+	if err != nil {
+		t.Fatalf("expected cmd/a.go: %v", err)
+	}
+	aContent := string(aData)
+	if !strings.Contains(aContent, "type ACmd struct {") {
+		t.Errorf("expected group ACmd in cmd/a.go:\n%s", aContent)
+	}
+	if !strings.Contains(aContent, "type BCmd struct {") {
+		t.Errorf("expected group BCmd in cmd/a.go:\n%s", aContent)
+	}
+	if strings.Contains(aContent, "func (c *BCmd) Run()") {
+		t.Errorf("group BCmd must not have a Run method:\n%s", aContent)
+	}
+
+	cmdData, err := os.ReadFile(filepath.Join("cmd", "cmd.go"))
+	if err != nil {
+		t.Fatalf("read cmd.go: %v", err)
+	}
+	if !strings.Contains(string(cmdData), `A ACmd `+"`"+`cmd:"" help:"a command group"`+"`") {
+		t.Errorf("expected ACmd registered with default group help:\n%s", cmdData)
+	}
+	// BCmd lives in a.go registered under ACmd with the desc help text.
+	if !strings.Contains(aContent, `B BCmd `+"`"+`cmd:"" help:"B ops"`+"`") {
+		t.Errorf("expected BCmd registered with desc help \"B ops\":\n%s", aContent)
+	}
+}
+

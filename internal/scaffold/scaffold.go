@@ -20,7 +20,9 @@ import (
 
 // AddCommand implements `min cmd add`: adds a command (dot-separated segments
 // create nested command groups) to the cmd/ package of the current project.
-func AddCommand(name, desc string) error {
+// When group is true, the final segment is created as a bare command group
+// (no Run method) instead of a leaf command.
+func AddCommand(name, desc string, group bool) error {
 	segments := strings.Split(name, ".")
 	if len(segments) == 0 || segments[0] == "" {
 		return fmt.Errorf("command name is required")
@@ -42,7 +44,11 @@ func AddCommand(name, desc string) error {
 	helpText := desc
 	leaf := segments[len(segments)-1]
 	if helpText == "" {
-		helpText = leaf + " command"
+		if group {
+			helpText = leaf + " command group"
+		} else {
+			helpText = leaf + " command"
+		}
 	}
 
 	currentFile := cliFile
@@ -50,7 +56,8 @@ func AddCommand(name, desc string) error {
 	primaryGroupFile := filepath.Join("cmd", strings.ToLower(segments[0])+".go")
 
 	for i, seg := range segments {
-		isLeaf := i == len(segments)-1
+		isFinal := i == len(segments)-1
+		isLeaf := isFinal && !group
 		fieldName := naming.SanitizeFieldName(seg)
 		structName := fieldName + "Cmd"
 
@@ -79,6 +86,9 @@ func AddCommand(name, desc string) error {
 				return fmt.Errorf("command %q already exists in %s", name, targetFile)
 			}
 			if StructHasMethod(targetFile, structName, "Run") {
+				if group {
+					return fmt.Errorf("cannot add group %q: %s is already a leaf command", name, structName)
+				}
 				return fmt.Errorf("cannot add subcommands under %q: %s is already a leaf command", seg, structName)
 			}
 		} else {
@@ -94,7 +104,7 @@ func AddCommand(name, desc string) error {
 			}
 
 			segHelp := helpText
-			if !isLeaf {
+			if !isFinal {
 				segHelp = seg + " command group"
 			}
 			if err := RegisterField(currentFile, currentStruct, fieldName, structName, segHelp); err != nil {
