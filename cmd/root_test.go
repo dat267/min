@@ -48,11 +48,9 @@ func TestResolveConfigFileFlag(t *testing.T) {
 		args     []string
 		expected string
 	}{
-		{"Short flag space", []string{"app", "-c", "config.json"}, "config.json"},
-		{"Short flag equals", []string{"app", "-c=config.json"}, "config.json"},
 		{"Long flag space", []string{"app", "--config-file", "mycfg.json", "other"}, "mycfg.json"},
 		{"Long flag equals", []string{"app", "command", "--config-file=mycfg.json"}, "mycfg.json"},
-		{"Missing value", []string{"app", "-c"}, ""},
+		{"Missing value", []string{"app", "--config-file"}, ""},
 		{"No config flag", []string{"app", "--help"}, ""},
 	}
 

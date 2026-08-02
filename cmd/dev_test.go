@@ -803,3 +803,85 @@ func TestPublicAPIs_RuntimeExecution(t *testing.T) {
 		t.Fatalf("go build failed for generated SDK:\n%s\n%s", out, code)
 	}
 }
+
+func writeSpecAndGenerate(t *testing.T, spec string) (string, string) {
+	t.Helper()
+	tmpDir := t.TempDir()
+	specPath := filepath.Join(tmpDir, "openapi.json")
+	clientPath := filepath.Join(tmpDir, "client.go")
+	if err := os.WriteFile(specPath, []byte(spec), 0644); err != nil {
+		t.Fatalf("write spec: %v", err)
+	}
+	genCmd := &Openapi2GoCmd{Input: specPath, Output: clientPath, Pkg: "client"}
+	if err := genCmd.Run(context.Background()); err != nil {
+		t.Fatalf("Openapi2GoCmd failed: %v", err)
+	}
+	codeBytes, err := os.ReadFile(clientPath)
+	if err != nil {
+		t.Fatalf("read client.go: %v", err)
+	}
+	return tmpDir, string(codeBytes)
+}
+
+func compileGeneratedModule(t *testing.T, dir string) {
+	t.Helper()
+	cmd := exec.Command("go", "mod", "init", "gentest")
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("go mod init failed:\n%s", out)
+	}
+	cmd = exec.Command("go", "test", "./...")
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("generated module failed go test:\n%s", out)
+	}
+}
+
+func TestOpenapi2GoCmd_BareGetCompiles(t *testing.T) {
+	spec := `{
+  "openapi": "3.0.3",
+  "info": {"title": "T", "version": "1"},
+  "paths": {
+    "/ping": {"get": {"responses": {"200": {"description": "ok"}}}}
+  }
+}`
+	dir, code := writeSpecAndGenerate(t, spec)
+	if !strings.Contains(code, "func (c *Client) GetPing(") {
+		t.Fatalf("missing GetPing method:\n%s", code)
+	}
+	compileGeneratedModule(t, dir)
+}
+
+func TestOpenapi2GoCmd_MethodNameDedup(t *testing.T) {
+	spec := `{
+  "openapi": "3.0.3",
+  "info": {"title": "T", "version": "1"},
+  "paths": {
+    "/a": {"get": {"operationId": "getUser", "responses": {"200": {"description": "ok"}}}},
+    "/b": {"get": {"operationId": "GetUser", "responses": {"200": {"description": "ok"}}}}
+  }
+}`
+	dir, code := writeSpecAndGenerate(t, spec)
+	if !strings.Contains(code, "func (c *Client) GetUser(") {
+		t.Fatalf("missing GetUser method:\n%s", code)
+	}
+	if !strings.Contains(code, "func (c *Client) GetUser2(") {
+		t.Fatalf("expected deduplicated second method GetUser2:\n%s", code)
+	}
+	compileGeneratedModule(t, dir)
+}
+
+func TestOpenapi2GoCmd_DigitOperationID(t *testing.T) {
+	spec := `{
+  "openapi": "3.0.3",
+  "info": {"title": "T", "version": "1"},
+  "paths": {
+    "/c": {"get": {"operationId": "123-foo", "responses": {"200": {"description": "ok"}}}}
+  }
+}`
+	dir, code := writeSpecAndGenerate(t, spec)
+	if !strings.Contains(code, "func (c *Client) Do123Foo(") {
+		t.Fatalf("expected sanitized method Do123Foo:\n%s", code)
+	}
+	compileGeneratedModule(t, dir)
+}

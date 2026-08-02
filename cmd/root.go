@@ -112,10 +112,10 @@ func Execute(ctx context.Context) {
 
 func resolveConfigFileFlag() string {
 	for i, arg := range os.Args {
-		if (arg == "-c" || arg == "--config-file") && i+1 < len(os.Args) {
+		if arg == "--config-file" && i+1 < len(os.Args) {
 			return os.Args[i+1]
 		}
-		if strings.HasPrefix(arg, "-c=") || strings.HasPrefix(arg, "--config-file=") {
+		if strings.HasPrefix(arg, "--config-file=") {
 			parts := strings.SplitN(arg, "=", 2)
 			return parts[1]
 		}

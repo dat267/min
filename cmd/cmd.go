@@ -8,7 +8,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 type CmdGroup struct {
@@ -185,10 +188,10 @@ func Execute(ctx context.Context) {
 
 func resolveConfigFileFlag() string {
 	for i, arg := range os.Args {
-		if (arg == "-c" || arg == "--config-file") && i+1 < len(os.Args) {
+		if arg == "--config-file" && i+1 < len(os.Args) {
 			return os.Args[i+1]
 		}
-		if strings.HasPrefix(arg, "-c=") || strings.HasPrefix(arg, "--config-file=") {
+		if strings.HasPrefix(arg, "--config-file=") {
 			parts := strings.SplitN(arg, "=", 2)
 			return parts[1]
 		}
@@ -483,6 +486,9 @@ func (c *CmdAddCmd) Run() error {
 			if isLeaf {
 				return fmt.Errorf("command %q already exists in %s", c.Name, targetFile)
 			}
+			if structHasMethod(targetFile, structName, "Run") {
+				return fmt.Errorf("cannot add subcommands under %q: %s is already a leaf command", seg, structName)
+			}
 		} else {
 			// We need to generate the struct
 			if _, err := os.Stat(targetFile); os.IsNotExist(err) {
@@ -642,13 +648,50 @@ func findStructInFile(filePath string, seg string) string {
 		}
 	}
 
+	// Fall back to structs whose name continues from the segment at a
+	// camelCase word boundary (e.g. "Admin" matches "AdminCommands" but not
+	// "Administrator"). Sort for deterministic results.
+	var matches []string
 	for name := range structs {
-		if strings.HasPrefix(name, prefix) {
-			return name
+		if !strings.HasPrefix(name, prefix) {
+			continue
 		}
+		rest := name[len(prefix):]
+		if rest == "" {
+			continue
+		}
+		if r, _ := utf8.DecodeRuneInString(rest); unicode.IsUpper(r) {
+			matches = append(matches, name)
+		}
+	}
+	if len(matches) > 0 {
+		sort.Strings(matches)
+		return matches[0]
 	}
 
 	return ""
+}
+
+func structHasMethod(filePath, structName, methodName string) bool {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, filePath, nil, 0)
+	if err != nil {
+		return false
+	}
+	for _, decl := range f.Decls {
+		fd, ok := decl.(*ast.FuncDecl)
+		if !ok || fd.Name.Name != methodName || fd.Recv == nil || len(fd.Recv.List) == 0 {
+			continue
+		}
+		recv := fd.Recv.List[0].Type
+		if star, ok := recv.(*ast.StarExpr); ok {
+			recv = star.X
+		}
+		if id, ok := recv.(*ast.Ident); ok && id.Name == structName {
+			return true
+		}
+	}
+	return false
 }
 
 func structExistsInFile(filePath, structName string) bool {
@@ -745,6 +788,10 @@ func registerField(file, structName, fieldName, typeName, helpText string) error
 	}
 
 	tag := `cmd:""`
+	helpText = strings.ReplaceAll(helpText, "`", "'")
+	helpText = strings.ReplaceAll(helpText, "\r", " ")
+	helpText = strings.ReplaceAll(helpText, "\n", " ")
+	helpText = strings.ReplaceAll(helpText, `"`, `\"`)
 	line := fmt.Sprintf("\t%s %s `%s help:\"%s\"`\n", fieldName, typeName, tag, helpText)
 	out := content[:insertPos] + line + content[insertPos:]
 	return os.WriteFile(file, []byte(out), 0644)
