@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"bytes"
 	"os"
 	"strings"
 	"testing"
@@ -9,23 +8,8 @@ import (
 	"github.com/alecthomas/kong"
 )
 
-func captureRootStdout(fn func()) string {
-	r, w, err := os.Pipe()
-	if err != nil {
-		panic(err)
-	}
-	old := os.Stdout
-	os.Stdout = w
-	fn()
-	_ = w.Close()
-	os.Stdout = old
-	var buf bytes.Buffer
-	_, _ = buf.ReadFrom(r)
-	return buf.String()
-}
-
 func TestVersionCmd(t *testing.T) {
-	out := captureRootStdout(func() {
+	out := captureStdout(t, func() {
 		_ = (&VersionCmd{}).Run()
 	})
 	if strings.TrimSpace(out) != Version {

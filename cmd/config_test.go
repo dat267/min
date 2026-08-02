@@ -2,29 +2,12 @@ package cmd
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
-
-// captureConfigStdout intercepts standard output to verify CLI print statements.
-func captureConfigStdout(f func()) string {
-	r, w, err := os.Pipe()
-	if err != nil {
-		panic(err)
-	}
-	oldStdout := os.Stdout
-	os.Stdout = w
-
-	f()
-
-	_ = w.Close()
-	os.Stdout = oldStdout
-	var buf bytes.Buffer
-	_, _ = buf.ReadFrom(r)
-	return buf.String()
-}
 
 // setupTestConfig configures a temporary path for the config file.
 func setupTestConfig(t *testing.T) string {
@@ -42,7 +25,7 @@ func TestConfigInitCmd_Run(t *testing.T) {
 
 	// 1. Test standard initialization
 	initCmd := &ConfigInitCmd{}
-	out := captureConfigStdout(func() {
+	out := captureStdout(t, func() {
 		if err := initCmd.Run(); err != nil {
 			t.Fatalf("unexpected error on init: %v", err)
 		}
@@ -70,7 +53,7 @@ func TestConfigPathCmd_Run(t *testing.T) {
 	p := setupTestConfig(t)
 
 	// Test missing file
-	out := captureConfigStdout(func() {
+	out := captureStdout(t, func() {
 		_ = (&ConfigPathCmd{}).Run()
 	})
 	if !strings.Contains(out, "(does not exist)") {
@@ -79,7 +62,7 @@ func TestConfigPathCmd_Run(t *testing.T) {
 
 	// Test existing file
 	_ = (&ConfigInitCmd{}).Run()
-	out = captureConfigStdout(func() {
+	out = captureStdout(t, func() {
 		_ = (&ConfigPathCmd{}).Run()
 	})
 	if !strings.Contains(out, p) {
@@ -91,7 +74,7 @@ func TestConfigShowCmd_Run(t *testing.T) {
 	_ = setupTestConfig(t)
 
 	// Test missing file
-	out := captureConfigStdout(func() {
+	out := captureStdout(t, func() {
 		_ = (&ConfigShowCmd{}).Run()
 	})
 	if !strings.Contains(out, "(does not exist)") {
@@ -101,7 +84,7 @@ func TestConfigShowCmd_Run(t *testing.T) {
 	// Test existing file with data
 	_ = (&ConfigInitCmd{}).Run()
 	_ = (&ConfigSetCmd{Key: "server.port", Value: "8080"}).Run()
-	out = captureConfigStdout(func() {
+	out = captureStdout(t, func() {
 		_ = (&ConfigShowCmd{}).Run()
 	})
 	if !strings.Contains(out, `"server"`) || !strings.Contains(out, `"port": 8080`) {
@@ -197,7 +180,7 @@ func TestConfigUnsetCmd(t *testing.T) {
 	_ = (&ConfigSetCmd{Key: "version", Value: "v1.0"}).Run()
 
 	// Unset nested key
-	out := captureConfigStdout(func() {
+	out := captureStdout(t, func() {
 		_ = (&ConfigUnsetCmd{Key: "app.debug"}).Run()
 	})
 	if !strings.Contains(out, "Unset \"app.debug\"") {
@@ -214,7 +197,7 @@ func TestConfigUnsetCmd(t *testing.T) {
 	}
 
 	// Unset missing key
-	out = captureConfigStdout(func() {
+	out = captureStdout(t, func() {
 		_ = (&ConfigUnsetCmd{Key: "app.missing"}).Run()
 	})
 	if !strings.Contains(out, "not found") {
@@ -234,7 +217,7 @@ func TestConfigUnsetCmd(t *testing.T) {
 
 func TestSaveConfigMap_Formatting(t *testing.T) {
 	p := setupTestConfig(t)
-	m := map[string]any{"hello": "world"}
+	m := map[string]any{"hello": "world", "nested": map[string]any{"count": 3}}
 	if err := saveConfigMap(p, m); err != nil {
 		t.Fatalf("save failed: %v", err)
 	}
@@ -246,5 +229,19 @@ func TestSaveConfigMap_Formatting(t *testing.T) {
 	// Verify file ends with newline (POSIX standard)
 	if !bytes.HasSuffix(data, []byte("\n")) {
 		t.Error("expected config file to end with a newline character")
+	}
+
+	// Round-trip: the written file must parse back to the original map.
+	var parsed map[string]any
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("written config does not parse as JSON: %v\n%s", err, data)
+	}
+	if parsed["hello"] != "world" {
+		t.Errorf("expected hello=world after round-trip, got %v", parsed["hello"])
+	}
+	if nested, ok := parsed["nested"].(map[string]any); !ok {
+		t.Errorf("expected nested to be a map, got %T", parsed["nested"])
+	} else if nested["count"] != float64(3) {
+		t.Errorf("expected nested.count=3 after round-trip, got %v", nested["count"])
 	}
 }

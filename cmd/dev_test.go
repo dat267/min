@@ -2,6 +2,7 @@ package cmd_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -389,8 +390,36 @@ func TestHarCmd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to read outJson: %v", err)
 	}
-	if !strings.Contains(string(jsonBytes), "openapi") || !strings.Contains(string(jsonBytes), "/v1/users") {
-		t.Errorf("unexpected JSON spec output: %s", string(jsonBytes))
+
+	// Structural validation: parse the JSON and verify the path and request body
+	// made it through, instead of only checking substrings.
+	var spec struct {
+		OpenAPI string `json:"openapi"`
+		Paths   map[string]struct {
+			Post *struct {
+				RequestBody *struct {
+					Content map[string]struct {
+						Schema map[string]any `json:"schema"`
+					} `json:"content"`
+				} `json:"requestBody"`
+			} `json:"post"`
+		} `json:"paths"`
+	}
+	if err := json.Unmarshal(jsonBytes, &spec); err != nil {
+		t.Fatalf("output is not valid JSON: %v\n%s", err, jsonBytes)
+	}
+	if spec.OpenAPI == "" {
+		t.Errorf("expected openapi version field in spec")
+	}
+	postOp := spec.Paths["/v1/users"].Post
+	if postOp == nil {
+		t.Errorf("expected POST /v1/users operation in spec")
+	} else {
+		if postOp.RequestBody == nil {
+			t.Errorf("expected requestBody for POST /v1/users")
+		} else if _, ok := postOp.RequestBody.Content["application/json"]; !ok {
+			t.Errorf("expected application/json content for requestBody")
+		}
 	}
 
 	// Test YAML output
@@ -747,17 +776,32 @@ func TestPublicAPIs_RuntimeExecution(t *testing.T) {
 	specPath := filepath.Join(tmpDir, "openapi.yaml")
 	clientPath := filepath.Join(tmpDir, "client.go")
 
-	_ = os.WriteFile(harPath, []byte(harJson), 0644)
+	if err := os.WriteFile(harPath, []byte(harJson), 0644); err != nil {
+		t.Fatalf("failed to write har: %v", err)
+	}
 
 	harCmd := &cmd.Har2OpenapiCmd{Input: harPath, Output: specPath, Title: "Petstore"}
-	_ = harCmd.Run(context.Background())
+	if err := harCmd.Run(context.Background()); err != nil {
+		t.Fatalf("har convert failed: %v", err)
+	}
 
 	genCmd := &cmd.Openapi2GoCmd{Input: specPath, Output: clientPath, Pkg: "client"}
-	_ = genCmd.Run(context.Background())
+	if err := genCmd.Run(context.Background()); err != nil {
+		t.Fatalf("openapi gen failed: %v", err)
+	}
 
-	codeBytes, _ := os.ReadFile(clientPath)
+	codeBytes, err := os.ReadFile(clientPath)
+	if err != nil {
+		t.Fatalf("failed to read generated client: %v", err)
+	}
 	code := string(codeBytes)
 	if !strings.Contains(code, "GetV2PetPetId") {
 		t.Fatalf("expected GetV2PetPetId method in generated client")
+	}
+
+	// Compile the generated client to prove it is valid Go.
+	cmdBuild := exec.Command("go", "build", clientPath)
+	if out, err := cmdBuild.CombinedOutput(); err != nil {
+		t.Fatalf("go build failed for generated SDK:\n%s\n%s", out, code)
 	}
 }

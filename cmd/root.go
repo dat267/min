@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"strings"
+	"sync"
 
 	"github.com/alecthomas/kong"
 )
@@ -27,7 +28,11 @@ type CLI struct {
 const appName = "min"
 
 var Version = "dev"
-var cfgPath string
+
+var (
+	cfgPathMu sync.RWMutex
+	cfgPath   string
+)
 
 func init() {
 	cfgPath = resolveConfigPath()
@@ -38,6 +43,8 @@ func init() {
 
 // SetConfigPath overrides the config file path used by config commands.
 func SetConfigPath(p string) {
+	cfgPathMu.Lock()
+	defer cfgPathMu.Unlock()
 	if p == "" {
 		cfgPath = resolveConfigPath()
 	} else {
@@ -45,7 +52,11 @@ func SetConfigPath(p string) {
 	}
 }
 
-func CfgPath() string { return cfgPath }
+func CfgPath() string {
+	cfgPathMu.RLock()
+	defer cfgPathMu.RUnlock()
+	return cfgPath
+}
 
 func resolveConfigPath() string {
 	envKey := strings.ToUpper(appName) + "_CONFIG_FILE"

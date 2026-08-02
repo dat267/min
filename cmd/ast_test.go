@@ -1,28 +1,11 @@
 package cmd
 
 import (
-	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
-
-// captureAstStdout captures stdout to verify CLI command outputs.
-func captureAstStdout(fn func()) string {
-	r, w, err := os.Pipe()
-	if err != nil {
-		panic(err)
-	}
-	old := os.Stdout
-	os.Stdout = w
-	fn()
-	_ = w.Close()
-	os.Stdout = old
-	var buf bytes.Buffer
-	_, _ = buf.ReadFrom(r)
-	return buf.String()
-}
 
 func TestAstScanCmd(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -45,7 +28,7 @@ func Greet(name string) string {
 		t.Fatalf("write sample.go failed: %v", err)
 	}
 
-	out := captureAstStdout(func() {
+	out := captureStdout(t, func() {
 		scanCmd := &AstScanCmd{Path: filePath}
 		if err := scanCmd.Run(); err != nil {
 			t.Fatalf("AstScanCmd failed: %v", err)
@@ -82,7 +65,7 @@ func IgnoreMe() {}
 		t.Fatalf("write sample.go failed: %v", err)
 	}
 
-	out := captureAstStdout(func() {
+	out := captureStdout(t, func() {
 		typesCmd := &AstTypesCmd{Path: filePath}
 		if err := typesCmd.Run(); err != nil {
 			t.Fatalf("AstTypesCmd failed: %v", err)
@@ -117,7 +100,7 @@ func (s *Server) Start() error {
 		t.Fatalf("write sample.go failed: %v", err)
 	}
 
-	out := captureAstStdout(func() {
+	out := captureStdout(t, func() {
 		fnCmd := &AstFnCmd{
 			Func: "Start",
 			Path: filePath,
@@ -149,38 +132,32 @@ func (b *B) Process() {}
 		t.Fatalf("write sample.go failed: %v", err)
 	}
 
-	// 1. Test Ambiguous Match (multiple 'Process' funcs, no Type specified)
-	fnCmdAmbiguous := &AstFnCmd{
-		Func: "Process",
-		Path: filePath,
-	}
-	err := fnCmdAmbiguous.Run()
-	if err == nil {
-		t.Fatal("expected error for ambiguous function name, got nil")
-	}
-	if !strings.Contains(err.Error(), "ambiguous matches") {
-		t.Errorf("expected ambiguous matches error, got: %v", err)
-	}
+	t.Run("ambiguous without type", func(t *testing.T) {
+		fnCmd := &AstFnCmd{Func: "Process", Path: filePath}
+		err := fnCmd.Run()
+		if err == nil {
+			t.Fatal("expected error for ambiguous function name, got nil")
+		}
+		if !strings.Contains(err.Error(), "ambiguous matches") {
+			t.Errorf("expected ambiguous matches error, got: %v", err)
+		}
+	})
 
-	// 2. Test Not Found Match
-	fnCmdMissing := &AstFnCmd{
-		Func: "DoesNotExist",
-		Path: filePath,
-	}
-	err = fnCmdMissing.Run()
-	if err == nil {
-		t.Fatal("expected error for missing function name, got nil")
-	}
-	if !strings.Contains(err.Error(), "not found") {
-		t.Errorf("expected not found error, got: %v", err)
-	}
+	t.Run("not found", func(t *testing.T) {
+		fnCmd := &AstFnCmd{Func: "DoesNotExist", Path: filePath}
+		err := fnCmd.Run()
+		if err == nil {
+			t.Fatal("expected error for missing function name, got nil")
+		}
+		if !strings.Contains(err.Error(), "not found") {
+			t.Errorf("expected not found error, got: %v", err)
+		}
+	})
 
-	// 3. Test Correctly resolving ambiguity via dot-notation
-	fnCmdResolved := &AstFnCmd{
-		Func: "B.Process",
-		Path: filePath,
-	}
-	if err := fnCmdResolved.Run(); err != nil {
-		t.Fatalf("failed to resolve B.Process using dot-notation: %v", err)
-	}
+	t.Run("resolve via dot notation", func(t *testing.T) {
+		fnCmd := &AstFnCmd{Func: "B.Process", Path: filePath}
+		if err := fnCmd.Run(); err != nil {
+			t.Fatalf("failed to resolve B.Process using dot-notation: %v", err)
+		}
+	})
 }

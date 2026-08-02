@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,10 +9,7 @@ import (
 
 func TestInitCmd(t *testing.T) {
 	dir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	_ = oldWd
-	_ = os.Chdir(dir)
-	defer func() { _ = os.Chdir(oldWd) }()
+	t.Chdir(dir)
 
 	err := (&CmdInitCmd{Name: "myapp"}).Run()
 	if err != nil {
@@ -29,10 +25,7 @@ func TestInitCmd(t *testing.T) {
 
 func TestInitCmdExistingDir(t *testing.T) {
 	dir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	_ = oldWd
-	_ = os.Chdir(dir)
-	defer func() { _ = os.Chdir(oldWd) }()
+	t.Chdir(dir)
 
 	_ = os.MkdirAll("myapp", 0755)
 	err := (&CmdInitCmd{Name: "myapp"}).Run()
@@ -41,33 +34,16 @@ func TestInitCmdExistingDir(t *testing.T) {
 	}
 }
 
-func CaptureOutput(fn func()) string {
-	r, w, err := os.Pipe()
-	if err != nil {
-		panic(err)
-	}
-	old := os.Stdout
-	os.Stdout = w
-	fn()
-	_ = w.Close()
-	os.Stdout = old
-	var buf bytes.Buffer
-	_, _ = buf.ReadFrom(r)
-	return buf.String()
-}
-
 func TestCmdAddCmd_NestedSingleFile(t *testing.T) {
 	dir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	_ = os.Chdir(dir)
-	defer func() { _ = os.Chdir(oldWd) }()
+	t.Chdir(dir)
 
 	err := (&CmdInitCmd{Name: "myapp"}).Run()
 	if err != nil {
 		t.Fatalf("init project failed: %v", err)
 	}
 
-	_ = os.Chdir("myapp")
+	t.Chdir("myapp")
 
 	addCmd := &CmdAddCmd{Name: "admin.users.create", Desc: "Create admin user"}
 	if err := addCmd.Run(); err != nil {
@@ -101,14 +77,12 @@ func TestCmdAddCmd_NestedSingleFile(t *testing.T) {
 
 func TestCmdShowCmd(t *testing.T) {
 	dir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	_ = os.Chdir(dir)
-	defer func() { _ = os.Chdir(oldWd) }()
+	t.Chdir(dir)
 
 	_ = (&CmdInitCmd{Name: "myapp"}).Run()
-	_ = os.Chdir("myapp")
+	t.Chdir("myapp")
 
-	out := CaptureOutput(func() {
+	out := captureStdout(t, func() {
 		_ = (&CmdShowCmd{}).Run()
 	})
 
