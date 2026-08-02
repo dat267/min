@@ -689,7 +689,7 @@ func appendStructToFile(filePath, structName string, isLeaf bool) error {
 	var sb strings.Builder
 	sb.WriteString("\n")
 	if isLeaf {
-		sb.WriteString(fmt.Sprintf(`type %[1]s struct {
+		fmt.Fprintf(&sb, `type %[1]s struct {
 	Name  string `+"`"+`help:"Name" arg:""`+"`"+`
 	Count int    `+"`"+`help:"Repeat count" default:"1"`+"`"+`
 	Shout bool   `+"`"+`help:"Shout" short:"s"`+"`"+`
@@ -705,12 +705,12 @@ func (c *%[1]s) Run() error {
 	}
 	return nil
 }
-`, structName))
+`, structName)
 		content = ensureImports(content, "fmt", "strings")
 	} else {
-		sb.WriteString(fmt.Sprintf(`type %[1]s struct {
+		fmt.Fprintf(&sb, `type %[1]s struct {
 }
-`, structName))
+`, structName)
 	}
 
 	content = strings.TrimRight(content, "\n\r\t ") + "\n" + sb.String()
@@ -778,7 +778,7 @@ func ensureImports(content string, imports ...string) string {
 		insertPos := importIdx + len("import (\n")
 		var sb strings.Builder
 		for _, m := range missing {
-			sb.WriteString(fmt.Sprintf("\t%q\n", m))
+			fmt.Fprintf(&sb, "\t%q\n", m)
 		}
 		return content[:insertPos] + sb.String() + content[insertPos:]
 	}
@@ -789,7 +789,7 @@ func ensureImports(content string, imports ...string) string {
 			var sb strings.Builder
 			sb.WriteString("\nimport (\n")
 			for _, m := range missing {
-				sb.WriteString(fmt.Sprintf("\t%q\n", m))
+				fmt.Fprintf(&sb, "\t%q\n", m)
 			}
 			sb.WriteString(")\n")
 			return content[:insertPos] + sb.String() + content[insertPos:]

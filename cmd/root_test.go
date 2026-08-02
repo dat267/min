@@ -35,8 +35,7 @@ func TestVersionCmd(t *testing.T) {
 
 func TestResolveConfigPath_EnvVar(t *testing.T) {
 	expected := "/tmp/custom_min.json"
-	os.Setenv("MIN_CONFIG_FILE", expected)
-	defer os.Unsetenv("MIN_CONFIG_FILE")
+	t.Setenv("MIN_CONFIG_FILE", expected)
 
 	if got := resolveConfigPath(); got != expected {
 		t.Errorf("expected %s via env var, got %s", expected, got)
@@ -45,14 +44,14 @@ func TestResolveConfigPath_EnvVar(t *testing.T) {
 
 func TestResolveConfigPath_LocalFile(t *testing.T) {
 	// Ensure env var is clear
-	os.Unsetenv("MIN_CONFIG_FILE")
+	t.Setenv("MIN_CONFIG_FILE", "")
 
 	// Create a dummy local file named "min.json" in the current test working directory
 	localFile := appName + ".json"
 	if err := os.WriteFile(localFile, []byte("{}"), 0644); err != nil {
 		t.Fatalf("failed to create local config file: %v", err)
 	}
-	defer os.Remove(localFile)
+	defer func() { _ = os.Remove(localFile) }()
 
 	if got := resolveConfigPath(); got != localFile {
 		t.Errorf("expected local file %s, got %s", localFile, got)
