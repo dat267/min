@@ -1,6 +1,6 @@
 # min
 
-min is a CLI project scaffolding tool. It uses the [Kong](https://github.com/alecthomas/kong) library.
+min is a Go CLI toolkit built on [Kong](https://github.com/alecthomas/kong): CLI project scaffolding, command management via AST, config file handling, Go AST analysis, and HAR/OpenAPI dev utilities.
 
 ```
 Usage: min <command> [flags]
@@ -12,18 +12,22 @@ Flags:
       --config-file=STRING    Config file path
 
 Commands:
-  ast scan        Scan Go files, strip bodies, keep signatures
-  ast types       Show types only (structs, interfaces, func signatures)
-  ast fn          Extract context for a single function
-  init            Initialize a new CLI project
-  cmd add         Add a new command
-  cmd show        List all commands
-  cmd edit        Edit a command struct
-  config init     Generate a default configuration file
-  config path     Show configuration file path
-  config show     Print current configuration values
-  config set      Set a config value
-  config unset    Unset a config value
+  dev har-2-openapi    Convert HAR capture file to OpenAPI 3.0 specification
+  dev openapi-2-go     Generate Go SDK client from OpenAPI specification
+  version              Show version
+  ast scan             Scan Go files, strip bodies, keep signatures
+  ast types            Show types only (structs, interfaces, func signatures)
+  ast fn               Extract context for a single function
+  cmd init             Initialize a new project
+  cmd add              Add a new command
+  cmd show             List all commands
+  cmd edit             Edit a command struct
+  config init          Generate a default configuration file
+  config path          Show configuration file path
+  config show          Print current configuration values
+  config set           Set a config value
+  config unset         Unset a config value
+  config edit          Open config file in default editor
 ```
 
 ## Quick start
@@ -33,7 +37,7 @@ Commands:
 go install github.com/dat267/min@latest
 
 # Create a project
-min init mycli
+min cmd init mycli
 cd mycli && go mod tidy && go run . greet
 # -> Hello, World!
 ```
@@ -43,17 +47,21 @@ cd mycli && go mod tidy && go run . greet
 Config is a JSON file. Config commands create parent directories automatically.
 
 ```bash
-# Create a config file with struct defaults
+# Create an empty config file
 min config init
 min config show
-# -> { }
+# -> {}
 
 # Set values
 min config set greeting hello
 min config set count 5
 min config set enabled true
 min config show
-# -> { "greeting": "hello", "count": 5, "enabled": true }
+# -> {
+#   "count": 5,
+#   "enabled": true,
+#   "greeting": "hello"
+# }
 
 # Dotted keys create nested objects
 min config set core.timeout 5m
@@ -66,9 +74,9 @@ min config unset greeting
 min --config-file /path/to/config.json config set key value
 ```
 
-The `--config-file` flag is a root-level flag. It must come before the command name. It does not appear inside the config file.
+The `--config-file` flag is a root-level flag. It can be given before or after the command name. It does not appear inside the config file.
 
-Config defaults come from struct `default:"..."` tags. Kong loads these values.
+Config defaults come from struct `default:"..."` tags. In generated projects, Kong reads these defaults, and config-file values are merged over them via a JSON resolver that supports both flat and nested keys.
 
 Config keys can be flat or nested. Both of these set the same deeply-nested flag:
 
@@ -80,8 +88,8 @@ Config keys can be flat or nested. Both of these set the same deeply-nested flag
 ## Add a command
 
 ```bash
-# Create cmd/greet.go and register it in the CLI struct
-min cmd add greet
+# Create cmd/hello.go and register it in the CLI struct
+min cmd add hello
 
 # Use dot notation for nested commands
 min cmd add admin.users.list
@@ -111,15 +119,16 @@ Each command is a struct with a `Run() error` method. Add flags as struct fields
 mycli/
   main.go       -- entry point
   go.mod
+  go.sum
   cmd/
-    cmd.go      -- CLI struct and config commands
+    cmd.go      -- CLI struct, Greet example, and config commands
 ```
 
 ## Development
 
 ```bash
 # Build with version
-go build -ldflags="-X main.version=$(git describe --tags --always)" -o min . && ./min --version
+go build -ldflags="-X main.version=$(git describe --tags --always)" -o min . && ./min version
 
 # Run and install
 go run .
