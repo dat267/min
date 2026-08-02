@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -15,6 +16,7 @@ type ConfigCmdGroup struct {
 	Show  ConfigShowCmd  `cmd:"" help:"Print current configuration values"`
 	Set   ConfigSetCmd   `cmd:"" help:"Set a config value"`
 	Unset ConfigUnsetCmd `cmd:"" help:"Unset a config value"`
+	Edit  ConfigEditCmd  `cmd:"" help:"Open config file in default editor"`
 }
 
 type ConfigInitCmd struct {
@@ -85,8 +87,8 @@ func (cmd *ConfigSetCmd) Run() error {
 		val = true
 	} else if cmd.Value == "false" {
 		val = false
-	} else if n, err := strconv.Atoi(cmd.Value); err == nil {
-		val = n
+	} else if n, err := strconv.ParseFloat(cmd.Value, 64); err == nil {
+		val = n // Handles both integers and floats
 	}
 
 	keys := strings.Split(cmd.Key, ".")
@@ -120,6 +122,29 @@ func (cmd *ConfigUnsetCmd) Run() error {
 		fmt.Printf("Key %q not found\n", cmd.Key)
 	}
 	return nil
+}
+
+type ConfigEditCmd struct{}
+
+func (cmd *ConfigEditCmd) Run() error {
+	p := CfgPath()
+	if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
+		return fmt.Errorf("failed to create config directory: %w", err)
+	}
+	if _, err := os.Stat(p); os.IsNotExist(err) {
+		if err := os.WriteFile(p, []byte("{}\n"), 0644); err != nil {
+			return fmt.Errorf("failed to write default config: %w", err)
+		}
+	}
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		editor = "vim"
+	}
+	ecmd := exec.Command(editor, p)
+	ecmd.Stdin = os.Stdin
+	ecmd.Stdout = os.Stdout
+	ecmd.Stderr = os.Stderr
+	return ecmd.Run()
 }
 
 func loadConfigMap(path string) (map[string]any, error) {
@@ -182,5 +207,13 @@ func unsetNestedMap(m map[string]any, keys []string) bool {
 	if !ok {
 		return false
 	}
-	return unsetNestedMap(sub, keys[1:])
+
+	deleted := unsetNestedMap(sub, keys[1:])
+
+	// Prune the parent map if it's now completely empty
+	if deleted && len(sub) == 0 {
+		delete(m, keys[0])
+	}
+
+	return deleted
 }

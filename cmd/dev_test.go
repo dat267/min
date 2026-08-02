@@ -147,7 +147,7 @@ paths:
 	if !strings.Contains(code, "func (c *Client) GetV1OrgsOrgIdUsers(ctx context.Context, orgId string, queryParams *GetV1OrgsOrgIdUsersParams)") {
 		t.Errorf("missing GetV1OrgsOrgIdUsers method signature with path and query parameters:\n%s", code)
 	}
-	if !strings.Contains(code, "reqURL := c.BaseURL + fmt.Sprintf(\"/v1/orgs/%s/users\", orgId)") {
+	if !strings.Contains(code, "reqURL := c.BaseURL + fmt.Sprintf(\"/v1/orgs/%s/users\", url.PathEscape(orgId))") {
 		t.Errorf("missing fmt.Sprintf path template formatting:\n%s", code)
 	}
 
@@ -179,7 +179,7 @@ paths:
 		t.Fatalf("failed to write spec: %v", err)
 	}
 
-	// Omit Pkg so it defaults to parent directory name ("my_custom_sdk" -> "mycustomsdk")
+	// Omit Pkg so it defaults to parent directory name ("my_custom_sdk" -> "my_custom_sdk")
 	genCmd := &cmd.Openapi2GoCmd{
 		Input:  specPath,
 		Output: outPath,
@@ -337,7 +337,6 @@ paths:
 	if !strings.Contains(code, "PostV1Users(ctx context.Context, reqBody *PostV1UsersRequest) (*Response[[]byte], error)") {
 		t.Errorf("missing PostV1Users in ClientInterface:\n%s", code)
 	}
-	// Concrete *Client must satisfy the interface (verified by go build in public API tests)
 }
 
 func TestHarCmd(t *testing.T) {
@@ -527,8 +526,6 @@ func TestHarCmdFiltering(t *testing.T) {
 	}
 }
 
-// TestPublicAPIs_EndToEnd verifies HAR conversion to OpenAPI and Go SDK generation
-// against realistic public API schemas (GitHub, Stripe, Petstore, Slack).
 func TestPublicAPIs_EndToEnd(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -713,8 +710,6 @@ func TestPublicAPIs_EndToEnd(t *testing.T) {
 	}
 }
 
-// TestPublicAPIs_RuntimeExecution executes generated client methods against mock servers
-// returning real public API response schemas.
 func TestPublicAPIs_RuntimeExecution(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

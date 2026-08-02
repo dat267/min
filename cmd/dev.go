@@ -28,7 +28,6 @@ type Har2OpenapiCmd struct {
 	ApiOnly bool   `help:"Ignore static assets (js, css, images, fonts, html)" default:"true"`
 }
 
-// HAR structures
 type harContainer struct {
 	Log harLog `json:"log"`
 }
@@ -103,21 +102,23 @@ func (c *Har2OpenapiCmd) Run(ctx context.Context) error {
 			}
 
 			if unmarshalErr == nil && existingSpec != nil {
-				if existingPaths, ok := existingSpec["paths"].(map[string]any); ok {
-					if newPaths, ok := spec["paths"].(map[string]map[string]any); ok {
-						for p, methods := range newPaths {
-							if _, exists := existingPaths[p]; !exists {
-								existingPaths[p] = methods
-							} else {
-								if existingMethods, ok := existingPaths[p].(map[string]any); ok {
-									for m, op := range methods {
-										existingMethods[m] = op
-									}
-								}
+				existingPaths, ok := existingSpec["paths"].(map[string]any)
+				if !ok {
+					existingPaths = make(map[string]any)
+					existingSpec["paths"] = existingPaths
+				}
+
+				if newPaths, ok := spec["paths"].(map[string]map[string]any); ok {
+					for p, methods := range newPaths {
+						if _, exists := existingPaths[p]; !exists {
+							existingPaths[p] = methods
+						} else if existingMethods, ok := existingPaths[p].(map[string]any); ok {
+							for m, op := range methods {
+								existingMethods[m] = op
 							}
 						}
-						spec["paths"] = existingPaths
 					}
+					spec["paths"] = existingPaths
 				}
 			}
 		}
@@ -139,8 +140,11 @@ func (c *Har2OpenapiCmd) Run(ctx context.Context) error {
 	}
 
 	if c.Output != "" {
-		if err := os.MkdirAll(filepath.Dir(c.Output), 0755); err != nil && filepath.Dir(c.Output) != "." {
-			return fmt.Errorf("create dir: %w", err)
+		dir := filepath.Dir(c.Output)
+		if dir != "" && dir != "." {
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				return fmt.Errorf("create dir: %w", err)
+			}
 		}
 		if err := os.WriteFile(c.Output, outData, 0644); err != nil {
 			return fmt.Errorf("write output file: %w", err)
@@ -194,7 +198,6 @@ func (c *Har2OpenapiCmd) generateOpenAPI(entries []harEntry) map[string]any {
 		op := make(map[string]any)
 		op["summary"] = fmt.Sprintf("%s %s", strings.ToUpper(method), pathStr)
 
-		// Query Parameters
 		var params []map[string]any
 		for _, q := range req.QueryString {
 			params = append(params, map[string]any{
@@ -211,7 +214,6 @@ func (c *Har2OpenapiCmd) generateOpenAPI(entries []harEntry) map[string]any {
 			op["parameters"] = params
 		}
 
-		// Request Body
 		if req.PostData != nil && req.PostData.Text != "" {
 			mime := req.PostData.MimeType
 			if mime == "" {
@@ -229,7 +231,6 @@ func (c *Har2OpenapiCmd) generateOpenAPI(entries []harEntry) map[string]any {
 			}
 		}
 
-		// Response Body
 		statusStr := fmt.Sprintf("%d", resp.Status)
 		if resp.Status == 0 {
 			statusStr = "200"
@@ -451,6 +452,10 @@ func (c *Openapi2GoCmd) Run(ctx context.Context) error {
 	outPath := c.Output
 	if fi, err := os.Stat(outPath); err == nil && fi.IsDir() {
 		outPath = filepath.Join(outPath, "client.go")
+	} else if !strings.HasSuffix(outPath, ".go") {
+		if err != nil && os.IsNotExist(err) && (strings.HasSuffix(c.Output, "/") || filepath.Ext(c.Output) == "") {
+			outPath = filepath.Join(outPath, "client.go")
+		}
 	}
 
 	pkgName := c.Pkg
@@ -466,8 +471,11 @@ func (c *Openapi2GoCmd) Run(ctx context.Context) error {
 	code := c.generateGoSDK(&spec, pkgName)
 	testCode := c.generateGoSDKTests(&spec, pkgName, clientName)
 
-	if err := os.MkdirAll(filepath.Dir(outPath), 0755); err != nil && filepath.Dir(outPath) != "." {
-		return fmt.Errorf("create directory: %w", err)
+	dir := filepath.Dir(outPath)
+	if dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("create directory: %w", err)
+		}
 	}
 
 	if err := os.WriteFile(outPath, []byte(code), 0644); err != nil {
@@ -497,12 +505,19 @@ func (c *Openapi2GoCmd) generateGoSDK(spec *openAPISpec, pkgName string) string 
 	}
 
 	hasAnyQuery := false
+	hasAnyPath := false
+
 	for _, methods := range spec.Paths {
-		for _, op := range methods {
+		for methodKey, op := range methods {
+			if !isHTTPMethod(methodKey) {
+				continue
+			}
 			for _, p := range op.Parameters {
 				if p.In == "query" {
 					hasAnyQuery = true
-					break
+				}
+				if p.In == "path" {
+					hasAnyPath = true
 				}
 			}
 		}
@@ -516,7 +531,7 @@ func (c *Openapi2GoCmd) generateGoSDK(spec *openAPISpec, pkgName string) string 
 	sb.WriteString("\t\"fmt\"\n")
 	sb.WriteString("\t\"io\"\n")
 	sb.WriteString("\t\"net/http\"\n")
-	if hasAnyQuery {
+	if hasAnyQuery || hasAnyPath {
 		sb.WriteString("\t\"net/url\"\n")
 	}
 	sb.WriteString("\t\"strings\"\n")
@@ -568,7 +583,6 @@ func (c *Openapi2GoCmd) generateGoSDK(spec *openAPISpec, pkgName string) string 
 	}
 	var methodsGen []methodGen
 
-	// Sort paths to ensure deterministic code generation
 	var pathKeys []string
 	for k := range spec.Paths {
 		pathKeys = append(pathKeys, k)
@@ -579,14 +593,16 @@ func (c *Openapi2GoCmd) generateGoSDK(spec *openAPISpec, pkgName string) string 
 		methods := spec.Paths[pathStr]
 		var methodKeys []string
 		for m := range methods {
-			methodKeys = append(methodKeys, m)
+			if isHTTPMethod(m) {
+				methodKeys = append(methodKeys, m)
+			}
 		}
 		sort.Strings(methodKeys)
 
 		for _, methodStr := range methodKeys {
 			op := methods[methodStr]
 			methodUpper := strings.ToUpper(methodStr)
-			methodTitle := strings.Title(strings.ToLower(methodStr))
+			methodTitle := titleCase(methodStr)
 			baseName := op.OperationID
 			if baseName == "" {
 				baseName = methodTitle + "_" + pathStr
@@ -645,6 +661,19 @@ func (c *Openapi2GoCmd) generateGoSDK(spec *openAPISpec, pkgName string) string 
 				}
 			}
 
+			// Sort path parameters based on their positional appearance in the path string
+			sort.Slice(pathParams, func(i, j int) bool {
+				idxI := strings.Index(pathStr, "{"+pathParams[i].Name+"}")
+				idxJ := strings.Index(pathStr, "{"+pathParams[j].Name+"}")
+				if idxI == -1 {
+					return false
+				}
+				if idxJ == -1 {
+					return true
+				}
+				return idxI < idxJ
+			})
+
 			if len(queryParamsList) > 0 {
 				hasQuery = true
 				queryParamsStruct = collector.getUniqueName(funcName + "Params")
@@ -672,7 +701,6 @@ func (c *Openapi2GoCmd) generateGoSDK(spec *openAPISpec, pkgName string) string 
 		}
 	}
 
-	// Write generated payload and response structs
 	if len(collector.structs) > 0 {
 		sb.WriteString("// --- Models & Types ---\n\n")
 		var structNames []string
@@ -687,7 +715,6 @@ func (c *Openapi2GoCmd) generateGoSDK(spec *openAPISpec, pkgName string) string 
 		}
 	}
 
-	// Write ClientInterface — mirrors all concrete Client methods for easy mocking in tests
 	sb.WriteString(fmt.Sprintf("// %sInterface is the interface implemented by *%s, allowing callers to mock the client in tests.\n", clientName, clientName))
 	sb.WriteString(fmt.Sprintf("type %sInterface interface {\n", clientName))
 	for _, m := range methodsGen {
@@ -716,8 +743,6 @@ func (c *Openapi2GoCmd) generateGoSDK(spec *openAPISpec, pkgName string) string 
 		sb.WriteString(fmt.Sprintf("\t%s(%s) %s\n", m.funcName, paramList, returnType))
 	}
 	sb.WriteString("}\n\n")
-
-	// Write client methods
 
 	for _, m := range methodsGen {
 		sb.WriteString(fmt.Sprintf("// %s executes %s %s\n", m.funcName, m.methodUpper, m.pathStr))
@@ -755,7 +780,7 @@ func (c *Openapi2GoCmd) generateGoSDK(spec *openAPISpec, pkgName string) string 
 			for _, pp := range m.pathParams {
 				target := "{" + pp.Name + "}"
 				formattedPath = strings.ReplaceAll(formattedPath, target, "%s")
-				formatArgs = append(formatArgs, toLowerCamelCase(pp.Name))
+				formatArgs = append(formatArgs, fmt.Sprintf("url.PathEscape(%s)", toLowerCamelCase(pp.Name)))
 			}
 			sb.WriteString(fmt.Sprintf("\treqURL := c.BaseURL + fmt.Sprintf(%q, %s)\n", formattedPath, strings.Join(formatArgs, ", ")))
 		} else {
@@ -780,7 +805,11 @@ func (c *Openapi2GoCmd) generateGoSDK(spec *openAPISpec, pkgName string) string 
 				sb.WriteString("\t\t}\n")
 			}
 			sb.WriteString("\t\tif encoded := q.Encode(); encoded != \"\" {\n")
-			sb.WriteString("\t\t\treqURL += \"?\" + encoded\n")
+			sb.WriteString("\t\t\tif strings.Contains(reqURL, \"?\") {\n")
+			sb.WriteString("\t\t\t\treqURL += \"&\" + encoded\n")
+			sb.WriteString("\t\t\t} else {\n")
+			sb.WriteString("\t\t\t\treqURL += \"?\" + encoded\n")
+			sb.WriteString("\t\t\t}\n")
 			sb.WriteString("\t\t}\n")
 			sb.WriteString("\t}\n")
 		}
@@ -865,16 +894,17 @@ func (c *Openapi2GoCmd) generateGoSDKTests(spec *openAPISpec, pkgName, clientNam
 		ops := spec.Paths[pathStr]
 		var methodKeys []string
 		for m := range ops {
-			methodKeys = append(methodKeys, m)
+			if isHTTPMethod(m) {
+				methodKeys = append(methodKeys, m)
+			}
 		}
 		sort.Strings(methodKeys)
+
 		for _, methodStr := range methodKeys {
 			op := ops[methodStr]
 			lowerMethod := strings.ToLower(methodStr)
-			var methodTitle string
-			if len(lowerMethod) > 0 {
-				methodTitle = strings.ToUpper(lowerMethod[:1]) + lowerMethod[1:]
-			}
+			methodTitle := titleCase(lowerMethod)
+
 			baseName := op.OperationID
 			if baseName == "" {
 				baseName = methodTitle + "_" + pathStr
@@ -890,14 +920,35 @@ func (c *Openapi2GoCmd) generateGoSDKTests(spec *openAPISpec, pkgName, clientNam
 					hasQuery = true
 				}
 			}
+
+			// Sort path parameters by positional appearance
+			sort.Slice(pathParams, func(i, j int) bool {
+				idxI := strings.Index(pathStr, "{"+pathParams[i].Name+"}")
+				idxJ := strings.Index(pathStr, "{"+pathParams[j].Name+"}")
+				if idxI == -1 {
+					return false
+				}
+				if idxJ == -1 {
+					return true
+				}
+				return idxI < idxJ
+			})
+
 			if op.RequestBody != nil && len(op.RequestBody.Content) > 0 {
 				hasBody = true
 			}
 			expectedPath := pathStr
 			for _, pp := range pathParams {
-				expectedPath = strings.ReplaceAll(expectedPath, "{"+pp.Name+"}", "test-"+toLowerCamelCase(pp.Name))
+				expectedPath = strings.ReplaceAll(expectedPath, "{"+pp.Name+"}", url.PathEscape("test-"+toLowerCamelCase(pp.Name)))
 			}
-			methods = append(methods, testMethod{funcName: funcName, methodUpper: strings.ToUpper(methodStr), expectedPath: expectedPath, pathParams: pathParams, hasQuery: hasQuery, hasBody: hasBody})
+			methods = append(methods, testMethod{
+				funcName:     funcName,
+				methodUpper:  strings.ToUpper(methodStr),
+				expectedPath: expectedPath,
+				pathParams:   pathParams,
+				hasQuery:     hasQuery,
+				hasBody:      hasBody,
+			})
 		}
 	}
 
@@ -971,7 +1022,6 @@ func (c *Openapi2GoCmd) generateGoSDKTests(spec *openAPISpec, pkgName, clientNam
 	}
 
 	if len(methods) > 0 {
-		// Prefer a safe (non-mutating) method for infrastructure tests so they always run.
 		first := methods[0]
 		for _, m := range methods {
 			if !isMutating(m.methodUpper) {
@@ -1005,6 +1055,7 @@ func (c *Openapi2GoCmd) generateGoSDKTests(spec *openAPISpec, pkgName, clientNam
 
 	return sb.String()
 }
+
 func (sc *structCollector) buildStructFromSchema(structName string, schema map[string]any) string {
 	props, ok := schema["properties"].(map[string]any)
 	if !ok || len(props) == 0 {
@@ -1068,6 +1119,24 @@ func (sc *structCollector) mapSchemaToGoType(parentField string, schema map[stri
 	default:
 		return "any"
 	}
+}
+
+func isHTTPMethod(m string) bool {
+	switch strings.ToUpper(m) {
+	case "GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD", "TRACE":
+		return true
+	default:
+		return false
+	}
+}
+
+func titleCase(s string) string {
+	if s == "" {
+		return ""
+	}
+	r := []rune(strings.ToLower(s))
+	r[0] = unicode.ToUpper(r[0])
+	return string(r)
 }
 
 func toCamelCase(s string) string {
@@ -1150,9 +1219,10 @@ func detectPeerPackageName(outPath string) string {
 	}
 
 	// 2. Parent directory name
-	absPath, err := filepath.Abs(outPath)
-	if err == nil {
-		parentDir := filepath.Base(filepath.Dir(absPath))
+	absPath, err := filepath.Base(outPath), error(nil)
+	_ = absPath
+	if abs, err := filepath.Abs(outPath); err == nil {
+		parentDir := filepath.Base(filepath.Dir(abs))
 		parentDir = sanitizePkgName(parentDir)
 		if parentDir != "" && parentDir != "." && parentDir != "/" {
 			return parentDir
