@@ -23,8 +23,8 @@ type ConfigInitCmd struct {
 	Overwrite bool `help:"Overwrite existing configuration file"`
 }
 
-func (cmd *ConfigInitCmd) Run() error {
-	p := CfgPath()
+func (cmd *ConfigInitCmd) Run(app *App) error {
+	p := app.CfgPath()
 	if _, err := os.Stat(p); err == nil && !cmd.Overwrite {
 		return fmt.Errorf("configuration file already exists at %s", p)
 	}
@@ -44,8 +44,8 @@ func (cmd *ConfigInitCmd) Run() error {
 
 type ConfigPathCmd struct{}
 
-func (cmd *ConfigPathCmd) Run() error {
-	p := CfgPath()
+func (cmd *ConfigPathCmd) Run(app *App) error {
+	p := app.CfgPath()
 	if _, err := os.Stat(p); os.IsNotExist(err) {
 		fmt.Printf("%s (does not exist)\n", p)
 		return nil
@@ -56,8 +56,8 @@ func (cmd *ConfigPathCmd) Run() error {
 
 type ConfigShowCmd struct{}
 
-func (cmd *ConfigShowCmd) Run() error {
-	p := CfgPath()
+func (cmd *ConfigShowCmd) Run(app *App) error {
+	p := app.CfgPath()
 	data, err := os.ReadFile(p)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -75,8 +75,8 @@ type ConfigSetCmd struct {
 	Value string `arg:"" help:"Value to set"`
 }
 
-func (cmd *ConfigSetCmd) Run() error {
-	p := CfgPath()
+func (cmd *ConfigSetCmd) Run(app *App) error {
+	p := app.CfgPath()
 	cfgMap, err := loadConfigMap(p)
 	if err != nil {
 		return err
@@ -105,8 +105,8 @@ type ConfigUnsetCmd struct {
 	Key string `arg:"" help:"Configuration key to unset"`
 }
 
-func (cmd *ConfigUnsetCmd) Run() error {
-	p := CfgPath()
+func (cmd *ConfigUnsetCmd) Run(app *App) error {
+	p := app.CfgPath()
 	cfgMap, err := loadConfigMap(p)
 	if err != nil {
 		return err
@@ -126,8 +126,8 @@ func (cmd *ConfigUnsetCmd) Run() error {
 
 type ConfigEditCmd struct{}
 
-func (cmd *ConfigEditCmd) Run() error {
-	p := CfgPath()
+func (cmd *ConfigEditCmd) Run(app *App) error {
+	p := app.CfgPath()
 	if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}

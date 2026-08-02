@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 
 	"github.com/alecthomas/kong"
 )
@@ -19,11 +18,6 @@ var appName = "min"
 
 const configFileFlagName = "config-file"
 
-var (
-	cfgPathMu sync.RWMutex
-	cfgPath   string
-)
-
 // SetAppName overrides the application name used for config path resolution.
 func SetAppName(name string) {
 	if name != "" {
@@ -31,23 +25,20 @@ func SetAppName(name string) {
 	}
 }
 
-// SetConfigPath overrides the config file path used by config commands.
-func SetConfigPath(p string) {
-	cfgPathMu.Lock()
-	defer cfgPathMu.Unlock()
-	cfgPath = p
+// App carries the resolved config file path to commands. Execute constructs
+// one and binds it via Kong so config commands receive their path explicitly
+// instead of reading a package global.
+type App struct {
+	cfgPath string
 }
 
-// CfgPath returns the configured config file path, resolving a default lazily
-// when none has been set.
-func CfgPath() string {
-	cfgPathMu.RLock()
-	p := cfgPath
-	cfgPathMu.RUnlock()
-	if p != "" {
-		return p
+// CfgPath returns the config file path, resolving a default lazily when none
+// is set. It is nil-safe.
+func (a *App) CfgPath() string {
+	if a == nil || a.cfgPath == "" {
+		return resolveConfigPath()
 	}
-	return resolveConfigPath()
+	return a.cfgPath
 }
 
 func resolveConfigPath() string {
@@ -67,19 +58,20 @@ func resolveConfigPath() string {
 
 // Execute is the main entry point called by main.go.
 func Execute(ctx context.Context) {
-	app := &CLI{}
-
+	app := &App{}
 	if cf := resolveConfigFileFlag(); cf != "" {
-		SetConfigPath(cf)
+		app.cfgPath = cf
 	}
-	activeConfig := CfgPath()
+	activeConfig := app.CfgPath()
 
+	cli := &CLI{}
 	options := []kong.Option{
 		kong.Name(appName),
 		kong.Description("CLI project scaffolding tool"),
 		kong.UsageOnError(),
 		kong.ConfigureHelp(kong.HelpOptions{Compact: true}),
 		kong.BindTo(ctx, (*context.Context)(nil)),
+		kong.Bind(app),
 	}
 
 	if f, err := os.Open(activeConfig); err == nil {
@@ -89,7 +81,7 @@ func Execute(ctx context.Context) {
 		_ = f.Close()
 	}
 
-	k, err := kong.New(app, options...)
+	k, err := kong.New(cli, options...)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
@@ -98,7 +90,7 @@ func Execute(ctx context.Context) {
 	kongCtx, err := k.Parse(os.Args[1:])
 	k.FatalIfErrorf(err)
 
-	SetConfigPath(app.ConfigFile)
+	app.cfgPath = cli.ConfigFile
 	k.FatalIfErrorf(kongCtx.Run())
 }
 

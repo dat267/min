@@ -9,24 +9,21 @@ import (
 	"testing"
 )
 
-// setupTestConfig configures a temporary path for the config file.
-func setupTestConfig(t *testing.T) string {
+// setupTestApp configures an App with a temporary config path.
+func setupTestApp(t *testing.T) *App {
+	t.Helper()
 	dir := t.TempDir()
-	p := filepath.Join(dir, "config.json")
-	SetConfigPath(p)
-	t.Cleanup(func() {
-		SetConfigPath("")
-	})
-	return p
+	return &App{cfgPath: filepath.Join(dir, "config.json")}
 }
 
 func TestConfigInitCmd_Run(t *testing.T) {
-	p := setupTestConfig(t)
+	app := setupTestApp(t)
+	p := app.CfgPath()
 
 	// 1. Test standard initialization
 	initCmd := &ConfigInitCmd{}
 	out := captureStdout(t, func() {
-		if err := initCmd.Run(); err != nil {
+		if err := initCmd.Run(app); err != nil {
 			t.Fatalf("unexpected error on init: %v", err)
 		}
 	})
@@ -38,32 +35,33 @@ func TestConfigInitCmd_Run(t *testing.T) {
 	}
 
 	// 2. Test initialization without overwrite fails
-	if err := initCmd.Run(); err == nil {
+	if err := initCmd.Run(app); err == nil {
 		t.Fatal("expected error when initializing over existing file without Overwrite=true")
 	}
 
 	// 3. Test initialization with overwrite succeeds
 	initCmd.Overwrite = true
-	if err := initCmd.Run(); err != nil {
+	if err := initCmd.Run(app); err != nil {
 		t.Fatalf("unexpected error with Overwrite=true: %v", err)
 	}
 }
 
 func TestConfigPathCmd_Run(t *testing.T) {
-	p := setupTestConfig(t)
+	app := setupTestApp(t)
+	p := app.CfgPath()
 
 	// Test missing file
 	out := captureStdout(t, func() {
-		_ = (&ConfigPathCmd{}).Run()
+		_ = (&ConfigPathCmd{}).Run(app)
 	})
 	if !strings.Contains(out, "(does not exist)") {
 		t.Errorf("expected '(does not exist)', got: %s", out)
 	}
 
 	// Test existing file
-	_ = (&ConfigInitCmd{}).Run()
+	_ = (&ConfigInitCmd{}).Run(app)
 	out = captureStdout(t, func() {
-		_ = (&ConfigPathCmd{}).Run()
+		_ = (&ConfigPathCmd{}).Run(app)
 	})
 	if !strings.Contains(out, p) {
 		t.Errorf("expected path %s, got: %s", p, out)
@@ -71,21 +69,21 @@ func TestConfigPathCmd_Run(t *testing.T) {
 }
 
 func TestConfigShowCmd_Run(t *testing.T) {
-	_ = setupTestConfig(t)
+	app := setupTestApp(t)
 
 	// Test missing file
 	out := captureStdout(t, func() {
-		_ = (&ConfigShowCmd{}).Run()
+		_ = (&ConfigShowCmd{}).Run(app)
 	})
 	if !strings.Contains(out, "(does not exist)") {
 		t.Errorf("expected '(does not exist)', got: %s", out)
 	}
 
 	// Test existing file with data
-	_ = (&ConfigInitCmd{}).Run()
-	_ = (&ConfigSetCmd{Key: "server.port", Value: "8080"}).Run()
+	_ = (&ConfigInitCmd{}).Run(app)
+	_ = (&ConfigSetCmd{Key: "server.port", Value: "8080"}).Run(app)
 	out = captureStdout(t, func() {
-		_ = (&ConfigShowCmd{}).Run()
+		_ = (&ConfigShowCmd{}).Run(app)
 	})
 	if !strings.Contains(out, `"server"`) || !strings.Contains(out, `"port": 8080`) {
 		t.Errorf("expected JSON output containing server.port=8080, got: %s", out)
@@ -93,7 +91,8 @@ func TestConfigShowCmd_Run(t *testing.T) {
 }
 
 func TestConfigSetCmd_Types(t *testing.T) {
-	p := setupTestConfig(t)
+	app := setupTestApp(t)
+	p := app.CfgPath()
 
 	tests := []struct {
 		key      string
@@ -108,7 +107,7 @@ func TestConfigSetCmd_Types(t *testing.T) {
 
 	for _, tc := range tests {
 		cmd := &ConfigSetCmd{Key: tc.key, Value: tc.valIn}
-		if err := cmd.Run(); err != nil {
+		if err := cmd.Run(app); err != nil {
 			t.Fatalf("failed to set %s: %v", tc.key, err)
 		}
 	}
@@ -128,11 +127,12 @@ func TestConfigSetCmd_Types(t *testing.T) {
 }
 
 func TestConfigSetCmd_Nested(t *testing.T) {
-	p := setupTestConfig(t)
+	app := setupTestApp(t)
+	p := app.CfgPath()
 
 	// Set deep nested value
-	_ = (&ConfigSetCmd{Key: "database.master.host", Value: "localhost"}).Run()
-	_ = (&ConfigSetCmd{Key: "database.master.port", Value: "5432"}).Run()
+	_ = (&ConfigSetCmd{Key: "database.master.host", Value: "localhost"}).Run(app)
+	_ = (&ConfigSetCmd{Key: "database.master.port", Value: "5432"}).Run(app)
 
 	m, _ := loadConfigMap(p)
 	db, ok := m["database"].(map[string]any)
@@ -151,7 +151,7 @@ func TestConfigSetCmd_Nested(t *testing.T) {
 	}
 
 	// Overwrite intermediate map with scalar
-	_ = (&ConfigSetCmd{Key: "database.master", Value: "overwritten"}).Run()
+	_ = (&ConfigSetCmd{Key: "database.master", Value: "overwritten"}).Run(app)
 	m, _ = loadConfigMap(p)
 	db = m["database"].(map[string]any)
 	if db["master"] != "overwritten" {
@@ -159,7 +159,7 @@ func TestConfigSetCmd_Nested(t *testing.T) {
 	}
 
 	// Overwrite scalar with map implicitly
-	_ = (&ConfigSetCmd{Key: "database.master.new_key", Value: "1"}).Run()
+	_ = (&ConfigSetCmd{Key: "database.master.new_key", Value: "1"}).Run(app)
 	m, _ = loadConfigMap(p)
 	db = m["database"].(map[string]any)
 	master, ok = db["master"].(map[string]any)
@@ -172,16 +172,17 @@ func TestConfigSetCmd_Nested(t *testing.T) {
 }
 
 func TestConfigUnsetCmd(t *testing.T) {
-	p := setupTestConfig(t)
+	app := setupTestApp(t)
+	p := app.CfgPath()
 
 	// Setup initial config
-	_ = (&ConfigSetCmd{Key: "app.name", Value: "min"}).Run()
-	_ = (&ConfigSetCmd{Key: "app.debug", Value: "true"}).Run()
-	_ = (&ConfigSetCmd{Key: "version", Value: "v1.0"}).Run()
+	_ = (&ConfigSetCmd{Key: "app.name", Value: "min"}).Run(app)
+	_ = (&ConfigSetCmd{Key: "app.debug", Value: "true"}).Run(app)
+	_ = (&ConfigSetCmd{Key: "version", Value: "v1.0"}).Run(app)
 
 	// Unset nested key
 	out := captureStdout(t, func() {
-		_ = (&ConfigUnsetCmd{Key: "app.debug"}).Run()
+		_ = (&ConfigUnsetCmd{Key: "app.debug"}).Run(app)
 	})
 	if !strings.Contains(out, "Unset \"app.debug\"") {
 		t.Errorf("expected success message, got %s", out)
@@ -198,14 +199,14 @@ func TestConfigUnsetCmd(t *testing.T) {
 
 	// Unset missing key
 	out = captureStdout(t, func() {
-		_ = (&ConfigUnsetCmd{Key: "app.missing"}).Run()
+		_ = (&ConfigUnsetCmd{Key: "app.missing"}).Run(app)
 	})
 	if !strings.Contains(out, "not found") {
 		t.Errorf("expected not found message, got %s", out)
 	}
 
 	// Unset top-level key containing nested maps
-	_ = (&ConfigUnsetCmd{Key: "app"}).Run()
+	_ = (&ConfigUnsetCmd{Key: "app"}).Run(app)
 	m, _ = loadConfigMap(p)
 	if _, exists := m["app"]; exists {
 		t.Error("expected top level 'app' to be deleted entirely")
@@ -216,7 +217,8 @@ func TestConfigUnsetCmd(t *testing.T) {
 }
 
 func TestSaveConfigMap_Formatting(t *testing.T) {
-	p := setupTestConfig(t)
+	app := setupTestApp(t)
+	p := app.CfgPath()
 	m := map[string]any{"hello": "world", "nested": map[string]any{"count": 3}}
 	if err := saveConfigMap(p, m); err != nil {
 		t.Fatalf("save failed: %v", err)
@@ -243,5 +245,40 @@ func TestSaveConfigMap_Formatting(t *testing.T) {
 		t.Errorf("expected nested to be a map, got %T", parsed["nested"])
 	} else if nested["count"] != float64(3) {
 		t.Errorf("expected nested.count=3 after round-trip, got %v", nested["count"])
+	}
+}
+
+func TestApp_IndependentPaths(t *testing.T) {
+	appA := &App{cfgPath: filepath.Join(t.TempDir(), "a.json")}
+	appB := &App{cfgPath: filepath.Join(t.TempDir(), "b.json")}
+
+	if err := (&ConfigSetCmd{Key: "greeting", Value: "hi"}).Run(appA); err != nil {
+		t.Fatalf("set on A: %v", err)
+	}
+	if err := (&ConfigSetCmd{Key: "greeting", Value: "yo"}).Run(appB); err != nil {
+		t.Fatalf("set on B: %v", err)
+	}
+
+	ma, err := loadConfigMap(appA.CfgPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	mb, err := loadConfigMap(appB.CfgPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ma["greeting"] != "hi" {
+		t.Errorf("A.greeting = %v, want hi", ma["greeting"])
+	}
+	if mb["greeting"] != "yo" {
+		t.Errorf("B.greeting = %v, want yo", mb["greeting"])
+	}
+}
+
+func TestApp_CfgPathLazyFallback(t *testing.T) {
+	// An App with no explicit path falls back to the default resolution.
+	app := &App{}
+	if got := app.CfgPath(); got == "" {
+		t.Error("expected a resolved default path, got empty")
 	}
 }
