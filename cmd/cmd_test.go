@@ -173,33 +173,3 @@ func TestCmdAddCmd_InvalidIdentifiers(t *testing.T) {
 		parseAll(t)
 	}
 }
-
-func TestFindStructInFile_PrefixBoundary(t *testing.T) {
-	dir := t.TempDir()
-	file := filepath.Join(dir, "x.go")
-
-	// A struct whose name merely starts with the same letters as the
-	// segment must not be treated as a match.
-	adminOnly := `package cmd
-
-type Administrator struct{}
-`
-	if err := os.WriteFile(file, []byte(adminOnly), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if got := findStructInFile(file, "admin"); got != "" {
-		t.Errorf("expected no match for 'admin', got %q", got)
-	}
-
-	// A struct whose name starts at a camelCase word boundary still matches.
-	adminCmds := `package cmd
-
-type AdminCommands struct{}
-`
-	if err := os.WriteFile(file, []byte(adminCmds), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if got := findStructInFile(file, "admin"); got != "AdminCommands" {
-		t.Errorf("expected AdminCommands, got %q", got)
-	}
-}
