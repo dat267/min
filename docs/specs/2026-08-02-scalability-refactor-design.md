@@ -30,9 +30,8 @@ internal packages, parallel AST scanning, and no duplicated runtime code.
 
 ## Non-goals (deferred)
 
-- Config dependency injection (replace global `cfgPath` with an injected
-  `App` struct via Kong `Bind`). Mutex-protected global works and is tested;
-  this is a testability nicety, not a scaling win. Deferred to a follow-up.
+- ~~Config dependency injection~~ — now implemented; see
+  `docs/specs/2026-08-02-config-di-design.md`.
 - Full `go/printer` AST rewrite of the SDK generator. Replaced by the
   `go/format.Source` validation gate (Section 4) which delivers the same
   correctness guarantees at a fraction of the churn.
