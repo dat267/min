@@ -1,9 +1,11 @@
 package cmd
 
 import (
+	"bytes"
 	"go/parser"
 	"go/token"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -22,6 +24,33 @@ func TestInitCmd(t *testing.T) {
 	}
 	if _, err := os.Stat("myapp/go.mod"); os.IsNotExist(err) {
 		t.Fatal("go.mod not created")
+	}
+	// The scaffold runtime and config files are copied verbatim.
+	for _, f := range []string{"cmd/cmd.go", "cmd/runtime.go", "cmd/config.go"} {
+		if _, err := os.Stat(filepath.Join("myapp", f)); os.IsNotExist(err) {
+			t.Fatalf("%s not created", f)
+		}
+	}
+}
+
+func TestInitCmd_GeneratedProjectRuns(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	if err := (&CmdInitCmd{Name: "myapp"}).Run(); err != nil {
+		t.Fatalf("init project failed: %v", err)
+	}
+
+	var out bytes.Buffer
+	cmd := exec.Command("go", "run", ".", "greet")
+	cmd.Dir = filepath.Join(dir, "myapp")
+	cmd.Stdout = &out
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("generated project failed to run: %v", err)
+	}
+	if !strings.Contains(out.String(), "Hello, World!") {
+		t.Errorf("expected greeting, got: %s", out.String())
 	}
 }
 

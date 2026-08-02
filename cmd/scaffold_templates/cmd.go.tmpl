@@ -1,0 +1,33 @@
+package cmd
+
+import (
+	"fmt"
+	"strings"
+)
+
+func init() {
+	SetAppName("{{.AppName}}")
+}
+
+type CLI struct {
+	ConfigFile string         `help:"Config file path" json:"-"`
+	Greet      GreetCmd       `cmd:"" help:"Print a greeting"`
+	Config     ConfigCmdGroup `cmd:"" help:"Manage configuration"`
+}
+
+type GreetCmd struct {
+	Name  string `help:"Name to greet" arg:"" default:"World"`
+	Count int    `help:"Repeat count" default:"1"`
+	Shout bool   `help:"Shout" short:"s"`
+}
+
+func (c *GreetCmd) Run() error {
+	for i := 0; i < c.Count; i++ {
+		msg := fmt.Sprintf("Hello, %s!", c.Name)
+		if c.Shout {
+			msg = strings.ToUpper(msg)
+		}
+		fmt.Println(msg)
+	}
+	return nil
+}

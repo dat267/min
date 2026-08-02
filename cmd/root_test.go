@@ -42,6 +42,22 @@ func TestResolveConfigPath_LocalFile(t *testing.T) {
 	}
 }
 
+func TestSetAppName(t *testing.T) {
+	t.Setenv("MYCUSTOMAPP_CONFIG_FILE", "")
+	_ = os.Remove("mycustomapp.json")
+	defer func() { _ = os.Remove("mycustomapp.json") }()
+
+	SetAppName("mycustomapp")
+	defer SetAppName("min")
+
+	got := resolveConfigPath()
+	// resolveConfigPath may resolve to a local file or a per-user config dir,
+	// but the app name must appear in the path either way.
+	if !strings.Contains(got, "mycustomapp.json") {
+		t.Errorf("expected path containing mycustomapp.json, got %q", got)
+	}
+}
+
 func TestResolveConfigFileFlag(t *testing.T) {
 	tests := []struct {
 		name     string

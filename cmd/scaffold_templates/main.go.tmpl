@@ -1,0 +1,11 @@
+package main
+
+import (
+	"context"
+
+	"{{.Module}}/cmd"
+)
+
+func main() {
+	cmd.Execute(context.Background())
+}
