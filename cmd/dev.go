@@ -929,9 +929,9 @@ func (c *Openapi2GoCmd) generateGoSDKTests(methods []sdkMethod, pkgName, clientN
 	sb.WriteString("import (\n")
 	if len(tests) > 0 {
 		sb.WriteString("\t\"context\"\n")
+		sb.WriteString("\t\"net/http\"\n")
+		sb.WriteString("\t\"net/http/httptest\"\n")
 	}
-	sb.WriteString("\t\"net/http\"\n")
-	sb.WriteString("\t\"net/http/httptest\"\n")
 	sb.WriteString("\t\"testing\"\n")
 	sb.WriteString(")\n\n")
 

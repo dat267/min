@@ -136,6 +136,44 @@ func TestCmdAddCmd_SubgroupUnderLeafCommand(t *testing.T) {
 	}
 }
 
+func TestCmdAddCmd_InvalidIdentifiers(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	if err := (&CmdInitCmd{Name: "myapp"}).Run(); err != nil {
+		t.Fatalf("init project failed: %v", err)
+	}
+	t.Chdir("myapp")
+
+	parseAll := func(t *testing.T) {
+		t.Helper()
+		entries, err := os.ReadDir("cmd")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range entries {
+			if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") {
+				continue
+			}
+			data, err := os.ReadFile(filepath.Join("cmd", e.Name()))
+			if err != nil {
+				t.Fatal(err)
+			}
+			fset := token.NewFileSet()
+			if _, err := parser.ParseFile(fset, e.Name(), data, 0); err != nil {
+				t.Fatalf("generated %s is not valid Go:\n%v\n%s", e.Name(), err, data)
+			}
+		}
+	}
+
+	for _, name := range []string{"foo-bar", "123admin"} {
+		if err := (&CmdAddCmd{Name: name}).Run(); err != nil {
+			t.Fatalf("cmd add %q failed: %v", name, err)
+		}
+		parseAll(t)
+	}
+}
+
 func TestFindStructInFile_PrefixBoundary(t *testing.T) {
 	dir := t.TempDir()
 	file := filepath.Join(dir, "x.go")

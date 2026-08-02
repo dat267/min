@@ -438,6 +438,11 @@ func (c *CmdAddCmd) Run() error {
 	if len(segments) == 0 || segments[0] == "" {
 		return fmt.Errorf("command name is required")
 	}
+	for _, seg := range segments {
+		if seg == "" {
+			return fmt.Errorf("invalid command name %q: empty segment", c.Name)
+		}
+	}
 	if _, err := os.Stat("cmd"); os.IsNotExist(err) {
 		return fmt.Errorf("no cmd/ directory found (run 'min init' first)")
 	}
@@ -459,7 +464,7 @@ func (c *CmdAddCmd) Run() error {
 
 	for i, seg := range segments {
 		isLeaf := i == len(segments)-1
-		fieldName := title(seg)
+		fieldName := sanitizeFieldName(seg)
 		structName := fieldName + "Cmd"
 
 		targetFile := primaryGroupFile
@@ -615,7 +620,7 @@ func findStructInFile(filePath string, seg string) string {
 		return ""
 	}
 
-	prefix := title(seg)
+	prefix := sanitizeFieldName(seg)
 	candidates := []string{
 		prefix + "Cmd",
 		prefix + "CmdGroup",
@@ -846,9 +851,8 @@ func ensureImports(content string, imports ...string) string {
 	return content
 }
 
-func title(s string) string {
-	if s == "" {
-		return ""
-	}
-	return strings.ToUpper(s[:1]) + s[1:]
+// sanitizeFieldName converts a command segment into a valid, exported Go
+// identifier (e.g. "foo-bar" -> "FooBar", "123admin" -> "X123admin").
+func sanitizeFieldName(seg string) string {
+	return sanitizeIdentStart(toCamelCase(seg), "X")
 }

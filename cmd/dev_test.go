@@ -885,3 +885,38 @@ func TestOpenapi2GoCmd_DigitOperationID(t *testing.T) {
 	}
 	compileGeneratedModule(t, dir)
 }
+
+func TestOpenapi2GoCmd_EmptyPathsCompiles(t *testing.T) {
+	spec := `{
+  "openapi": "3.0.3",
+  "info": {"title": "T", "version": "1"},
+  "paths": {}
+}`
+	dir, code := writeSpecAndGenerate(t, spec)
+	if !strings.Contains(code, "type Client struct") {
+		t.Fatalf("expected Client struct:\n%s", code)
+	}
+	compileGeneratedModule(t, dir)
+}
+
+func TestOpenapi2GoCmd_QueryFieldDedup(t *testing.T) {
+	spec := `{
+  "openapi": "3.0.3",
+  "info": {"title": "T", "version": "1"},
+  "paths": {
+    "/x": {"get": {
+      "operationId": "getX",
+      "parameters": [
+        {"name": "foo-bar", "in": "query"},
+        {"name": "foo_bar", "in": "query"}
+      ],
+      "responses": {"200": {"description": "ok"}}
+    }}
+  }
+}`
+	dir, code := writeSpecAndGenerate(t, spec)
+	if !strings.Contains(code, "FooBar string") {
+		t.Fatalf("expected FooBar field in query params struct:\n%s", code)
+	}
+	compileGeneratedModule(t, dir)
+}
