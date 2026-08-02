@@ -12,6 +12,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/dat267/min/internal/naming"
 )
 
 type CmdGroup struct {
@@ -464,7 +466,7 @@ func (c *CmdAddCmd) Run() error {
 
 	for i, seg := range segments {
 		isLeaf := i == len(segments)-1
-		fieldName := sanitizeFieldName(seg)
+		fieldName := naming.SanitizeFieldName(seg)
 		structName := fieldName + "Cmd"
 
 		targetFile := primaryGroupFile
@@ -620,7 +622,7 @@ func findStructInFile(filePath string, seg string) string {
 		return ""
 	}
 
-	prefix := sanitizeFieldName(seg)
+	prefix := naming.SanitizeFieldName(seg)
 	candidates := []string{
 		prefix + "Cmd",
 		prefix + "CmdGroup",
@@ -849,10 +851,4 @@ func ensureImports(content string, imports ...string) string {
 	}
 
 	return content
-}
-
-// sanitizeFieldName converts a command segment into a valid, exported Go
-// identifier (e.g. "foo-bar" -> "FooBar", "123admin" -> "X123admin").
-func sanitizeFieldName(seg string) string {
-	return sanitizeIdentStart(toCamelCase(seg), "X")
 }

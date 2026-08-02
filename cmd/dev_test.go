@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -138,7 +139,7 @@ paths:
 	if !strings.Contains(code, "type GetV1OrgsOrgIdUsersParams struct") {
 		t.Errorf("missing GetV1OrgsOrgIdUsersParams struct in generated code:\n%s", code)
 	}
-	if !strings.Contains(code, "Role string `json:\"role,omitempty\"` ") {
+	if !regexp.MustCompile(`Role\s+string`).MatchString(code) {
 		t.Errorf("missing Role field in query params struct:\n%s", code)
 	}
 
@@ -154,7 +155,7 @@ paths:
 	if !strings.Contains(code, "type PostV1OrgsOrgIdUsersRequest struct") {
 		t.Errorf("missing PostV1OrgsOrgIdUsersRequest struct in generated code:\n%s", code)
 	}
-	if !strings.Contains(code, "Username string `json:\"username,omitempty\"` ") {
+	if !strings.Contains(code, "Username string `json:\"username,omitempty\"`") {
 		t.Errorf("missing Username field in request struct:\n%s", code)
 	}
 }
@@ -642,7 +643,7 @@ func TestPublicAPIs_EndToEnd(t *testing.T) {
 				if !strings.Contains(code, "PostV1PaymentIntents") {
 					t.Errorf("missing PostV1PaymentIntents method")
 				}
-				if !strings.Contains(code, "Amount int64") {
+				if !regexp.MustCompile(`Amount\s+int64`).MatchString(code) {
 					t.Errorf("missing Amount int64 field")
 				}
 				if !strings.Contains(code, "AutomaticPaymentMethods") {
@@ -680,7 +681,7 @@ func TestPublicAPIs_EndToEnd(t *testing.T) {
 				if !strings.Contains(code, "PostApiChatPostMessage") {
 					t.Errorf("missing PostApiChatPostMessage method")
 				}
-				if !strings.Contains(code, "AsUser bool") {
+				if !regexp.MustCompile(`AsUser\s+bool`).MatchString(code) {
 					t.Errorf("missing AsUser bool field")
 				}
 			},
