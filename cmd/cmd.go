@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-type CommandGroup struct {
+type CmdGroup struct {
 	Add  CmdAddCmd  `cmd:"" help:"Add a new command"`
 	Show CmdShowCmd `cmd:"" help:"List all commands"`
 	Edit CmdEditCmd `cmd:"" help:"Edit a command struct"`

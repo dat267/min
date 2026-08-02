@@ -15,14 +15,14 @@ import (
 
 // CLI is the root CLI struct containing all subcommand groups.
 type CLI struct {
-	Dev        DevCmdGroup    `cmd:"" help:"Developer utilities (cURL, HAR, OpenAPI generator)"`
-	ConfigFile string         `help:"Config file path" json:"-"`
+	Dev        DevCmdGroup `cmd:"" help:"Developer utilities (cURL, HAR, OpenAPI generator)"`
+	ConfigFile string      `help:"Config file path" json:"-"`
 
-	Version  VersionCmd     `cmd:"" help:"Show version"`
-	Ast      AstCmdGroup    `cmd:"" help:"Parse Go AST for AI context"`
-	Init     InitCmd        `cmd:"" help:"Initialize a new CLI project"`
-	Cmd      CommandGroup   `cmd:"" help:"Manage commands"`
-	Config   ConfigCmdGroup `cmd:"" help:"Manage application configuration"`
+	Version VersionCmd     `cmd:"" help:"Show version"`
+	Ast     AstCmdGroup    `cmd:"" help:"Parse Go AST for AI context"`
+	Init    InitCmd        `cmd:"" help:"Initialize a new CLI project"`
+	Cmd     CmdGroup       `cmd:"" help:"Manage commands"`
+	Config  ConfigCmdGroup `cmd:"" help:"Manage application configuration"`
 }
 
 const appName = "min"
